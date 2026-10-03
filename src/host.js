@@ -10,11 +10,27 @@
  *
  * - `credentials`：**直接复用官方实现** `@deepseek-ai/dsh-credentials-local`
  *   （写 `<home>/.credentials.yaml`）。见下方「为什么不自实现」；
+ * - `attachments`：**直接复用官方实现** `@deepseek-ai/dsh-attachment-local`
+ *   （图片落 `<home>/attachments/`）。图片输入靠它，见下方「图片输入」；
  * - `commands`：**空对象**。插件只是把它列在 `inject` 里，代码零调用
  *   （已 grep 确认 `ctx.commands` 无引用），但缺少它插件会永久 pending；
  * - `connection`：自实现注册表（见 `connection.js`），Jet Hub 端点由此接入；
  * - `llm`：**真实**的 `LlmRuntime`（来自 `@deepseek-ai/dsh-llm`）。
  *   网关与各 provider 适配器都通过 `ctx.llm` 发请求，这里不能替身。
+ *
+ * ## 图片输入（attachments）
+ *
+ * 客户端发来的图片走两条路，**两端都要 attachments 服务**：
+ *
+ * 1. **入站**（网关）：OpenAI 的 `image_url` data URL → 调
+ *    `saveImage({data, mediaType})` 落成附件，再以 `ImageBlock` 交给模型。
+ *    没有它，网关收到图片会**明确报错**「未装载附件服务」（不会静默丢图）。
+ * 2. **出站**（适配器）：把附件读回字节内联进上游请求，用 `readImage(ref)`；
+ *    `readImageRequest(ref, target)` 可选（拿缩放版，失败自动回退原图）。
+ *
+ * ⚠️ 插件是用 `ctx.get('attachments')` 取它的（**不是** `inject`），因此服务
+ * 缺失时**不报错**、只是静默失去图片能力 —— 必须在 `ctx.plugin(plugin)`
+ * **之前**装载，否则插件启动时读到的就是 undefined。
  *
  * ## 为什么凭据用官方实现，而不是自己写一个
  *
@@ -39,6 +55,7 @@
  */
 
 import { Context } from "@deepseek-ai/cordis"
+import AttachmentLocal from "@deepseek-ai/dsh-attachment-local"
 import LocalCredentialProvider from "@deepseek-ai/dsh-credentials-local"
 import LlmRuntime from "@deepseek-ai/dsh-llm"
 import { connect } from "node:net"
@@ -167,6 +184,26 @@ export async function createHost() {
 
   // ② commands：仅为满足插件的静态 inject（代码零调用）。
   ctx.provide("commands", {})
+
+  // ③ attachments：**官方实现**，让图片输入可用（网关入站 + 适配器出站都读它）。
+  //
+  //    ⚠️ 位置必须在这里：插件的 `apply()` 内部用 `ctx.get('attachments')` 取它
+  //    （不是 `inject`，故缺了也不报错，只是**静默失去图片能力**）。若晚于
+  //    `ctx.plugin(plugin)` 提供，插件启动时读到的仍是 undefined，网关就永远
+  //    拿不到 `saveImage` —— 症状是收到图片回「未装载附件服务」。
+  //
+  //    两端的用法（都已实测）：
+  //    - **入站**（网关）：`saveImage({data, mediaType})`
+  //      → `{ attachmentId: 'sha256:…', mediaType, width, height, bytes }`；
+  //      内容寻址（同图同 id），媒体类型按字节硬校验（声明不符会被拒）；
+  //    - **出站**（适配器把图内联进上游请求）：`readImage(ref)` → `{data, ref.mediaType}`；
+  //      另有 `readImageRequest(ref, target)` 供按目标尺寸取缩放版。
+  //
+  //    ⚠️ 显式传 `dshHome: home`：该包默认会经 `dsh-home-paths` 自行解析
+  //    `DSH_HOME` / `~/.dsh`。我们已用 `pinHome()` 钉过环境变量，这里再显式传
+  //    一次，是为了让「图片存在哪」在代码里一眼可见、不依赖环境正确
+  //    （与凭据服务显式给 `path` 同一个理由）。
+  await ctx.plugin(AttachmentLocal, { dshHome: home })
 
   // ③ connection：Jet Hub 管理 RPC 的唯一接入点。
   //    ⚠️ 必须 provide `connection.service`（那个带 `fetch.register` 的对象），

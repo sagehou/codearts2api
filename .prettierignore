@@ -12,6 +12,7 @@ public/upstream-jet-hub.js
 # ── 运行时状态（若把 CODEARTS2API_HOME 指到仓库内）──
 data/
 .codearts2api/
+attachments/
 
 # ── 其它 ──
 .git/

@@ -38,6 +38,10 @@ WORKDIR /app
 #    `NODE_ENV` 免疫（已实测：production 下不加这个参数就装不到 esbuild）。
 #
 # ⚠️ 上游插件同样是运行期依赖，它的 prepare 要跑 tsc。
+#
+# 💡 `sharp`（附件服务用来校验/缩放图片）是**原生包**，靠 optionalDependencies
+#    分发平台二进制。lockfile 里已含 linux-x64 / linuxmusl-x64 等全部平台条目，
+#    故 Debian 基底能直接装上，不需要额外 apt 依赖（预编译包自带 libvips）。
 COPY package.json package-lock.json* ./
 RUN npm install --include=dev --no-audit --no-fund
 

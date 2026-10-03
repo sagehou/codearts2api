@@ -19,6 +19,10 @@ public/upstream-jet-hub.js
 .credentials.yaml
 openai-gateway/
 jet-hub/
+attachments/
+
+# DSH 的存储（本程序不读写它，但排除以防误提交）
+.dsh/
 
 # ── 环境与密钥 ──
 .env

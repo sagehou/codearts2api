@@ -22,7 +22,17 @@ export default [
   {
     // ⚠️ 编译产物与依赖目录：见文件头第 1 点。
     //    `public/admin.html` 是**手写源码**，不在此列（它不是产物）。
-    ignores: ["node_modules/", "public/admin.js", "public/upstream-jet-hub.js", "data/", "coverage/", ".git/"],
+    ignores: [
+      "node_modules/",
+      "public/admin.js",
+      "public/upstream-jet-hub.js",
+      // 运行时状态目录（若把 CODEARTS2API_HOME 指到仓库内）：
+      // `attachments/` 存的是二进制图片，让 lint 去读它们纯属浪费。
+      "data/",
+      "attachments/",
+      "coverage/",
+      ".git/",
+    ],
   },
   js.configs.recommended,
   {
