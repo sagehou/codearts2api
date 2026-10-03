@@ -38,20 +38,20 @@
  * 否则插件会停在 pending 上（不报错、也不注册任何端点，极难排查）。
  */
 
-import { Context } from '@deepseek-ai/cordis'
-import LocalCredentialProvider from '@deepseek-ai/dsh-credentials-local'
-import LlmRuntime from '@deepseek-ai/dsh-llm'
-import { connect } from 'node:net'
-import { join } from 'node:path'
-import * as plugin from 'dsh-codearts-auth'
+import { Context } from "@deepseek-ai/cordis"
+import LocalCredentialProvider from "@deepseek-ai/dsh-credentials-local"
+import LlmRuntime from "@deepseek-ai/dsh-llm"
+import { connect } from "node:net"
+import { join } from "node:path"
+import * as plugin from "dsh-codearts-auth"
 
-import { createConnection } from './connection.js'
-import { pinHome } from './home.js'
-import { installLogger } from './logger.js'
-import { CARRIER_PATH, JET_HUB_PATH, rpcEnvelope } from './upstream.js'
+import { createConnection } from "./connection.js"
+import { pinHome } from "./home.js"
+import { installLogger } from "./logger.js"
+import { CARRIER_PATH, JET_HUB_PATH, rpcEnvelope } from "./upstream.js"
 
 /** 凭据文档名（与官方实现一致）。 */
-const CREDENTIALS_FILENAME = '.credentials.yaml'
+const CREDENTIALS_FILENAME = ".credentials.yaml"
 
 /**
  * 读当前网关监听端口（未运行时 `undefined`）。
@@ -64,14 +64,16 @@ async function currentGatewayPort(connection) {
   const route = connection.routes.get(JET_HUB_PATH)
   if (route === undefined) return undefined
   try {
-    const response = await route.fetch(new Request(`http://127.0.0.1${JET_HUB_PATH}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(rpcEnvelope('gateway.getEnabled', {}, 'close-probe')),
-    }))
+    const response = await route.fetch(
+      new Request(`http://127.0.0.1${JET_HUB_PATH}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(rpcEnvelope("gateway.getEnabled", {}, "close-probe")),
+      }),
+    )
     const parsed = await response.json()
     const address = parsed?.result?.value?.address
-    return typeof address?.port === 'number' ? address.port : undefined
+    return typeof address?.port === "number" ? address.port : undefined
   } catch {
     // 探测失败不该阻塞关闭：最坏情况是少等一会儿（下面有 setImmediate 兜底）。
     return undefined
@@ -81,14 +83,14 @@ async function currentGatewayPort(connection) {
 /** 端口是否已可重新绑定（= 旧监听已释放）。 */
 function portReleased(port, timeoutMs = 200) {
   return new Promise((resolve) => {
-    const socket = connect({ host: '127.0.0.1', port })
+    const socket = connect({ host: "127.0.0.1", port })
     const done = (released) => {
       socket.destroy()
       resolve(released)
     }
     socket.setTimeout(timeoutMs, () => done(false))
-    socket.once('connect', () => done(false))
-    socket.once('error', () => done(true))
+    socket.once("connect", () => done(false))
+    socket.once("error", () => done(true))
   })
 }
 
@@ -164,7 +166,7 @@ export async function createHost() {
   })
 
   // ② commands：仅为满足插件的静态 inject（代码零调用）。
-  ctx.provide('commands', {})
+  ctx.provide("commands", {})
 
   // ③ connection：Jet Hub 管理 RPC 的唯一接入点。
   //    ⚠️ 必须 provide `connection.service`（那个带 `fetch.register` 的对象），
@@ -173,7 +175,7 @@ export async function createHost() {
   //    症状是启动日志里一条 `connection.fetch not available`，然后**所有**
   //    管理接口 404。
   const connection = createConnection()
-  ctx.provide('connection', connection.service)
+  ctx.provide("connection", connection.service)
 
   // ④ llm：真实的 LLM 运行时。必须在 ctx.plugin 之前构造（它自己 provide）。
   new LlmRuntime(ctx)
@@ -194,19 +196,15 @@ export async function createHost() {
   if (!connection.routes.has(JET_HUB_PATH)) {
     const registered = [...connection.routes.keys()]
     throw new Error(
-      `上游插件未注册预期的管理端点 ${JET_HUB_PATH}（实际注册：${registered.join(', ') || '无'}）。`
-      + '这通常意味着上游改了端点路径或装配方式 —— 请对照 src/upstream.js 顶部的契约表逐条核对，'
-      + '并把该文件里的常量改成上游的新值。',
+      `上游插件未注册预期的管理端点 ${JET_HUB_PATH}（实际注册：${registered.join(", ") || "无"}）。` +
+        "这通常意味着上游改了端点路径或装配方式 —— 请对照 src/upstream.js 顶部的契约表逐条核对，" +
+        "并把该文件里的常量改成上游的新值。",
     )
   }
   if (!connection.routes.has(CARRIER_PATH)) {
-    ctx.logger?.warn?.(
-      `[codearts2api] 上游未注册载体页 ${CARRIER_PATH}（可选功能，不影响其它能力）`,
-    )
+    ctx.logger?.warn?.(`[codearts2api] 上游未注册载体页 ${CARRIER_PATH}（可选功能，不影响其它能力）`)
   }
-  ctx.logger?.info?.(
-    `[codearts2api] 上游契约核对通过：${[...connection.routes.keys()].join(', ')}`,
-  )
+  ctx.logger?.info?.(`[codearts2api] 上游契约核对通过：${[...connection.routes.keys()].join(", ")}`)
 
   return {
     ctx,
@@ -242,8 +240,8 @@ export async function createHost() {
     close: async () => {
       const port = await currentGatewayPort(connection).catch(() => undefined)
       const root = ctx.fiber
-      if (root !== undefined && typeof root.dispose === 'function') await root.dispose()
-      else if (fiber !== undefined && typeof fiber.dispose === 'function') await fiber.dispose()
+      if (root !== undefined && typeof root.dispose === "function") await root.dispose()
+      else if (fiber !== undefined && typeof fiber.dispose === "function") await fiber.dispose()
       await waitForGatewayRelease(port)
     },
   }

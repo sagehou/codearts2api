@@ -18,8 +18,8 @@
  * 故 SIGINT/SIGTERM 都必须走 `host.close()`。
  */
 
-import { createHost } from './host.js'
-import { createHttpServer } from './server.js'
+import { createHost } from "./host.js"
+import { createHttpServer } from "./server.js"
 
 /** 默认管理端口。 */
 const DEFAULT_PORT = 8080
@@ -31,7 +31,7 @@ const DEFAULT_PORT = 8080
  */
 function resolvePort(env = process.env) {
   const raw = env.PORT
-  if (raw === undefined || raw === '') return DEFAULT_PORT
+  if (raw === undefined || raw === "") return DEFAULT_PORT
   const port = Number.parseInt(raw, 10)
   if (!Number.isInteger(port) || port < 1 || port > 65535 || String(port) !== raw.trim()) {
     throw new Error(`PORT 必须是 1 到 65535 之间的整数，收到：${raw}`)
@@ -42,7 +42,7 @@ function resolvePort(env = process.env) {
 /** 监听地址：默认全网卡（容器里必须如此，否则宿主访问不到）。 */
 function resolveHost(env = process.env) {
   const raw = env.HOST?.trim()
-  return raw === undefined || raw === '' ? '0.0.0.0' : raw
+  return raw === undefined || raw === "" ? "0.0.0.0" : raw
 }
 
 /**
@@ -54,7 +54,7 @@ function resolveHost(env = process.env) {
  */
 function resolveProxyGateway(env = process.env) {
   const raw = env.PROXY_GATEWAY?.trim().toLowerCase()
-  return raw === '1' || raw === 'true' || raw === 'on' || raw === 'yes'
+  return raw === "1" || raw === "true" || raw === "on" || raw === "yes"
 }
 
 const host = await createHost()
@@ -64,16 +64,19 @@ const proxyGateway = resolveProxyGateway()
 
 const server = createHttpServer(host, { logger: console, proxyGateway })
 await new Promise((resolve, reject) => {
-  server.once('error', reject)
-  server.once('listening', resolve)
+  server.once("error", reject)
+  server.once("listening", resolve)
   server.listen(port, bind)
 })
 
-console.log(`[codearts2api] 管理界面 http://${bind === '0.0.0.0' ? '127.0.0.1' : bind}:${port}/admin`)
+console.log(`[codearts2api] 管理界面 http://${bind === "0.0.0.0" ? "127.0.0.1" : bind}:${port}/admin`)
 console.log(`[codearts2api] state home: ${host.home}`)
-console.log(`[codearts2api] 已注册路由: ${[...host.routes.keys()].join(', ') || '（无）'}`)
+console.log(`[codearts2api] 已注册路由: ${[...host.routes.keys()].join(", ") || "（无）"}`)
 if (proxyGateway) console.log(`[codearts2api] /v1/* 已反代到本机插件网关`)
-else console.log(`[codearts2api] OpenAI 接口请直连插件网关（默认 127.0.0.1:8326，见 /healthz）；如需经本端口访问请设 PROXY_GATEWAY=1`)
+else
+  console.log(
+    `[codearts2api] OpenAI 接口请直连插件网关（默认 127.0.0.1:8326，见 /healthz）；如需经本端口访问请设 PROXY_GATEWAY=1`,
+  )
 
 let shuttingDown = false
 async function shutdown(signal) {
@@ -83,7 +86,7 @@ async function shutdown(signal) {
   // 兜底强制退出：插件清理里可能有等待网络的部分（如 captcha 子进程回收），
   // 不能让它无限期吊住进程。仍在飞行的请求由 closeAllConnections 收掉。
   const force = setTimeout(() => {
-    console.warn('[codearts2api] 关闭超时，强制退出')
+    console.warn("[codearts2api] 关闭超时，强制退出")
     server.closeAllConnections?.()
     process.exit(0)
   }, 10_000)
@@ -99,5 +102,5 @@ async function shutdown(signal) {
   process.exit(0)
 }
 
-process.once('SIGINT', () => void shutdown('SIGINT'))
-process.once('SIGTERM', () => void shutdown('SIGTERM'))
+process.once("SIGINT", () => void shutdown("SIGINT"))
+process.once("SIGTERM", () => void shutdown("SIGTERM"))

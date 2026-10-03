@@ -24,26 +24,26 @@
  */
 
 /** Jet Hub 管理端点路径（上游 `JET_HUB_API_PATH`）。 */
-export const JET_HUB_PATH = '/api/jet-hub'
+export const JET_HUB_PATH = "/api/jet-hub"
 
 /** zcode 内部载体的载体页路径（上游 `CAPTCHA_CARRIER_PATH`，可选功能）。 */
-export const CARRIER_PATH = '/api/jet-hub/captcha-carrier'
+export const CARRIER_PATH = "/api/jet-hub/captcha-carrier"
 
 /** RPC 线协议里的端点名（上游 `JET_HUB_ENDPOINT`）。 */
-export const JET_HUB_ENDPOINT = 'jet-hub'
+export const JET_HUB_ENDPOINT = "jet-hub"
 
 /** 客户端 bundle 会注册的 slot 名（我们据此把页面组件捞出来）。 */
-export const SETTINGS_SECTION_SLOT = 'settings.section'
+export const SETTINGS_SECTION_SLOT = "settings.section"
 
 /** 服务端 RPC 的规范错误信封里用到的字段（仅文档用途）。 */
 export const UPSTREAM_CONTRACT = Object.freeze({
   managementPath: JET_HUB_PATH,
   carrierPath: CARRIER_PATH,
   endpoint: JET_HUB_ENDPOINT,
-  clientLoader: 'window.__ModuleLoader__.load',
+  clientLoader: "window.__ModuleLoader__.load",
   settingsSlot: SETTINGS_SECTION_SLOT,
-  requiredServices: ['credentials', 'commands', 'llm'],
-  gatewayHost: '127.0.0.1',
+  requiredServices: ["credentials", "commands", "llm"],
+  gatewayHost: "127.0.0.1",
 })
 
 /**
@@ -56,9 +56,9 @@ export const UPSTREAM_CONTRACT = Object.freeze({
  * @param payload - 方法载荷。
  * @param rpcId - 请求 id；默认生成一个。
  */
-export function rpcEnvelope(method, payload, rpcId = 'rpc') {
+export function rpcEnvelope(method, payload, rpcId = "rpc") {
   return {
-    type: 'client-request',
+    type: "client-request",
     rpcId,
     method: JET_HUB_ENDPOINT,
     payload: { method, payload },

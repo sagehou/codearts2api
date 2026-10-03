@@ -11,15 +11,15 @@
  * ① 定义 `__ModuleLoader__` → ② 上游 bundle → ③ 本项目入口。
  */
 
-import { test } from 'node:test'
-import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { JSDOM } from 'jsdom'
-import { startTestApp } from './helpers.mjs'
+import { test } from "node:test"
+import assert from "node:assert/strict"
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
+import { fileURLToPath } from "node:url"
+import { JSDOM } from "jsdom"
+import { startTestApp } from "./helpers.mjs"
 
-const root = join(fileURLToPath(new URL('.', import.meta.url)), '..')
+const root = join(fileURLToPath(new URL(".", import.meta.url)), "..")
 
 /**
  * 在 jsdom 里按页面顺序加载三个文件，返回 window。
@@ -31,7 +31,7 @@ function renderAdmin(origin) {
     url: `${origin}/admin`,
     pretendToBeVisual: true,
     // `outside-only` 让我们显式控制执行，不自动跑内联脚本。
-    runScripts: 'outside-only',
+    runScripts: "outside-only",
   })
   const { window } = dom
 
@@ -43,11 +43,11 @@ function renderAdmin(origin) {
   //    不包这一层，页面会在加载账号时抛错（虽然本测试只断言外壳，但那属于
   //    「测试环境不如浏览器真实」，会掩盖真正的问题）。
   window.fetch = (input, init) => {
-    const target = typeof input === 'string' ? new URL(input, window.location.href).href : input
+    const target = typeof input === "string" ? new URL(input, window.location.href).href : input
     return globalThis.fetch(target, init)
   }
-  if (typeof window.crypto?.randomUUID !== 'function') {
-    Object.defineProperty(window, 'crypto', { value: globalThis.crypto, configurable: true })
+  if (typeof window.crypto?.randomUUID !== "function") {
+    Object.defineProperty(window, "crypto", { value: globalThis.crypto, configurable: true })
   }
 
   // ⚠️ 全部用 `window.eval` 执行：这样脚本运行在 **jsdom 自己的 realm** 里，
@@ -55,7 +55,7 @@ function renderAdmin(origin) {
   //    执行并传参，globalThis 仍是 Node 的，会出现「测试里失败、浏览器里正常」
   //    这类假阴性（本文件第一版就踩了这个坑）。
   const run = (file) => {
-    window.eval(readFileSync(join(root, file), 'utf8'))
+    window.eval(readFileSync(join(root, file), "utf8"))
   }
 
   // 按 admin.html 的顺序：① 定义 loader → ② 上游 bundle → ③ 本项目入口。
@@ -63,12 +63,12 @@ function renderAdmin(origin) {
   //    缺了它直接抛 `Cannot read properties of undefined (reading 'load')`。
   window.eval(`window.__ModuleLoader__ = { load: function (row) { window.__JET_HUB_ROW__ = row; } };`)
 
-  run('public/upstream-jet-hub.js')
-  run('public/admin.js')
+  run("public/upstream-jet-hub.js")
+  run("public/admin.js")
   return window
 }
 
-test('/admin 能渲染出上游 Jet Hub 界面', async (t) => {
+test("/admin 能渲染出上游 Jet Hub 界面", async (t) => {
   const app = await startTestApp()
   t.after(() => app.close())
 
@@ -76,37 +76,48 @@ test('/admin 能渲染出上游 Jet Hub 界面', async (t) => {
   // React 并发渲染是异步的，且页面挂载后会立刻发几条 RPC，给足时间。
   await new Promise((resolve) => setTimeout(resolve, 1200))
 
-  const rootElement = window.document.getElementById('admin-root')
+  const rootElement = window.document.getElementById("admin-root")
   const html = rootElement.innerHTML
 
   // ① 页面外壳渲染出来了（不是白屏、也不是错误提示）。
-  assert.match(html, /dim-jh-page/, '应渲染上游 Jet Hub 页面外壳')
-  assert.doesNotMatch(html, /管理界面加载失败/, '不应出现加载失败提示')
+  assert.match(html, /dim-jh-page/, "应渲染上游 Jet Hub 页面外壳")
+  assert.doesNotMatch(html, /管理界面加载失败/, "不应出现加载失败提示")
 
   // ② 页头与品牌。
-  assert.match(html, /Jet Hub/, '页头应显示 Jet Hub')
+  assert.match(html, /Jet Hub/, "页头应显示 Jet Hub")
 
   // ③ 左侧渠道导航渲染出了全部 13 个 provider。
-  const labels = [...rootElement.querySelectorAll('.dim-jh-rail button')]
-    .map((button) => button.textContent.trim())
-  for (const expected of ['CodeArts', 'CodeBuddy', 'WorkBuddy', 'LobsterAI', 'Qoder', 'TRAE', 'Cline', 'Loomy', 'Raccoon', 'MiniMax Code', 'ZCode']) {
+  const labels = [...rootElement.querySelectorAll(".dim-jh-rail button")].map((button) => button.textContent.trim())
+  for (const expected of [
+    "CodeArts",
+    "CodeBuddy",
+    "WorkBuddy",
+    "LobsterAI",
+    "Qoder",
+    "TRAE",
+    "Cline",
+    "Loomy",
+    "Raccoon",
+    "MiniMax Code",
+    "ZCode",
+  ]) {
     assert.ok(
       labels.some((label) => label.includes(expected)),
-      `渠道列表应包含 ${expected}，实际：${labels.join(' / ')}`,
+      `渠道列表应包含 ${expected}，实际：${labels.join(" / ")}`,
     )
   }
   assert.ok(labels.length >= 13, `渠道按钮应至少 13 个，实际 ${labels.length}`)
 
   // ④ 上游样式被注入（installJetHubStyles 走通了 document.head）。
-  assert.ok(window.document.head.querySelectorAll('style').length >= 1, '应注入上游样式表')
+  assert.ok(window.document.head.querySelectorAll("style").length >= 1, "应注入上游样式表")
 
   // ⑤ 网关入口按钮存在（用户要的「网关开启」入口）。
-  assert.match(html, /dim-jh-headerActions/, '页头应有操作按钮区')
+  assert.match(html, /dim-jh-headerActions/, "页头应有操作按钮区")
 })
 
-test('上游 bundle 只请求 react / react-dom 两个模块', () => {
+test("上游 bundle 只请求 react / react-dom 两个模块", () => {
   // 这条断言守住「复用」的前提：上游若新增第三个 external，我们的 shim 会失效。
-  const bundle = readFileSync(join(root, 'public/upstream-jet-hub.js'), 'utf8')
+  const bundle = readFileSync(join(root, "public/upstream-jet-hub.js"), "utf8")
   const required = new Set([...bundle.matchAll(/require\("([^"]+)"\)/g)].map((match) => match[1]))
-  assert.deepEqual([...required].sort(), ['react', 'react-dom'])
+  assert.deepEqual([...required].sort(), ["react", "react-dom"])
 })

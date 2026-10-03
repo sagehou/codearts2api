@@ -26,11 +26,11 @@
  * 账号数据，是极难排查的「账号怎么没了」。
  */
 
-import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { homedir } from "node:os"
+import { join } from "node:path"
 
 /** 本程序默认的状态目录名（放在用户主目录下）。 */
-export const DEFAULT_HOME_DIR = '.codearts2api'
+export const DEFAULT_HOME_DIR = ".codearts2api"
 
 /**
  * 解析本程序的状态目录。
@@ -40,7 +40,7 @@ export const DEFAULT_HOME_DIR = '.codearts2api'
  */
 export function resolveHome(env = process.env) {
   const configured = env.CODEARTS2API_HOME
-  if (typeof configured === 'string' && configured.trim().length > 0) return configured.trim()
+  if (typeof configured === "string" && configured.trim().length > 0) return configured.trim()
   return join(homedir(), DEFAULT_HOME_DIR)
 }
 

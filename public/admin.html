@@ -1,23 +1,43 @@
 <!doctype html>
 <html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Jet Hub · 渠道与网关管理</title>
-  <style>
-    /* 上游页面样式由它自己的 installJetHubStyles() 注入（一个 <style> 标签），
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Jet Hub · 渠道与网关管理</title>
+    <style>
+      /* 上游页面样式由它自己的 installJetHubStyles() 注入（一个 <style> 标签），
        这里只做页面级的外壳复位：让 .dim-jh-page 能撑满视口。 */
-    html, body { margin: 0; padding: 0; height: 100%; }
-    body { background: var(--dsw-alias-bg-layer-1, #f5f6f8); }
-    #admin-root { height: 100vh; display: flex; flex-direction: column; }
-    #admin-root > .dim-jh-page { flex: 1; min-height: 0; }
-    .boot { padding: 24px; font: 13px/1.6 ui-monospace, monospace; color: #555; }
-  </style>
-</head>
-<body>
-  <div id="admin-root"><div class="boot">正在加载管理界面…</div></div>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+      }
+      body {
+        background: var(--dsw-alias-bg-layer-1, #f5f6f8);
+      }
+      #admin-root {
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+      #admin-root > .dim-jh-page {
+        flex: 1;
+        min-height: 0;
+      }
+      .boot {
+        padding: 24px;
+        font:
+          13px/1.6 ui-monospace,
+          monospace;
+        color: #555;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="admin-root"><div class="boot">正在加载管理界面…</div></div>
 
-  <!--
+    <!--
     装载顺序是**硬约束**，不能换：
 
     1. 先定义 __ModuleLoader__.load：上游 bundle 的第一句就会调用它。
@@ -25,12 +45,14 @@
     2. 再加载上游 bundle（把它的 { id, factory } 行截留下来，不执行 factory）。
     3. 最后加载本项目的入口，由它调 factory 并渲染。
   -->
-  <script>
-    window.__ModuleLoader__ = {
-      load: function (row) { window.__JET_HUB_ROW__ = row; }
-    };
-  </script>
-  <script src="/upstream-jet-hub.js"></script>
-  <script src="/admin.js"></script>
-</body>
+    <script>
+      window.__ModuleLoader__ = {
+        load: function (row) {
+          window.__JET_HUB_ROW__ = row
+        },
+      }
+    </script>
+    <script src="/upstream-jet-hub.js"></script>
+    <script src="/admin.js"></script>
+  </body>
 </html>

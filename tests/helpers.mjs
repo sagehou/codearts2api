@@ -13,9 +13,9 @@
  * 动到用户数据）。网关默认端口 8326 也可能已被占用，故每次随机取一个高位端口。
  */
 
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { mkdtempSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 
 /**
  * 起一个测试用实例。
@@ -25,21 +25,21 @@ import { join } from 'node:path'
  * @returns `{ host, server, origin, home, close }`。
  */
 export async function startTestApp(options = {}) {
-  const home = options.home ?? mkdtempSync(join(tmpdir(), 'c2a-test-'))
+  const home = options.home ?? mkdtempSync(join(tmpdir(), "c2a-test-"))
   // ⚠️ 用**本程序自己的**变量：`pinHome()` 会把它写进 `DSH_HOME` /
   //    `DSH_JET_HUB_STATE_DIR`（插件读的那两个），从而与真实 DSH 隔离。
   //    直接设 `DSH_HOME` 是没用的 —— 会被 `pinHome()` 覆盖掉。
   process.env.CODEARTS2API_HOME = home
   // 端口 1..65535 且必须「十进制原文与数值一致」（插件的校验），故取高位随机值。
   process.env.DSH_OPENAI_GATEWAY_PORT = String(20_000 + Math.floor(Math.random() * 20_000))
-  if (options.gatewayEnabled === false) process.env.DSH_OPENAI_GATEWAY_ENABLED = '0'
+  if (options.gatewayEnabled === false) process.env.DSH_OPENAI_GATEWAY_ENABLED = "0"
   else delete process.env.DSH_OPENAI_GATEWAY_ENABLED
   // 测试默认开启反代：这样网关相关的断言可以只经一个端口完成，
   // 与容器部署的形态一致（也更接近用户实际会怎么用）。
-  process.env.PROXY_GATEWAY = options.proxyGateway === false ? '0' : '1'
+  process.env.PROXY_GATEWAY = options.proxyGateway === false ? "0" : "1"
 
-  const { createHost } = await import('../src/host.js')
-  const { createHttpServer } = await import('../src/server.js')
+  const { createHost } = await import("../src/host.js")
+  const { createHttpServer } = await import("../src/server.js")
 
   const host = await createHost()
   const server = createHttpServer(host, {
@@ -47,10 +47,10 @@ export async function startTestApp(options = {}) {
     proxyGateway: options.proxyGateway !== false,
   })
   await new Promise((resolve, reject) => {
-    server.once('error', reject)
-    server.once('listening', resolve)
+    server.once("error", reject)
+    server.once("listening", resolve)
     // 端口 0 = 由操作系统分配空闲端口，避免与开发中的实例抢端口。
-    server.listen(0, '127.0.0.1')
+    server.listen(0, "127.0.0.1")
   })
 
   const address = server.address()
@@ -81,12 +81,12 @@ export async function startTestApp(options = {}) {
  */
 export async function rpc(origin, method, payload = {}) {
   const response = await fetch(`${origin}/api/jet-hub`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    method: "POST",
+    headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      type: 'client-request',
+      type: "client-request",
       rpcId: `test-${Math.random().toString(36).slice(2)}`,
-      method: 'jet-hub',
+      method: "jet-hub",
       payload: { method, payload },
     }),
   })

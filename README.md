@@ -13,12 +13,12 @@
 上游插件本身就是一个 **cordis 插件**，入口是 `apply(ctx)`，宿主依赖面只有四个服务。
 本项目提供这四个服务后即可直接 `ctx.plugin()` 装载它 —— **不 fork、不改上游代码**：
 
-| 服务 | 本项目怎么做 | 为什么 |
-| --- | --- | --- |
+| 服务          | 本项目怎么做                                      | 为什么                                                                                                   |
+| ------------- | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
 | `credentials` | **复用官方** `@deepseek-ai/dsh-credentials-local` | 写 `<home>/.credentials.yaml`；自己实现会重担格式/权限/原子写/锁，任何一处偏差都表现为**静默读不到凭据** |
-| `commands` | 空对象 | 插件把它列在 `inject` 里但代码零调用；缺了会永久 pending |
-| `connection` | 自实现注册表（`src/connection.js`） | Jet Hub 管理端点经此接入，请求原样透传 |
-| `llm` | **真实** `@deepseek-ai/dsh-llm` 的 `LlmRuntime` | 网关与各渠道适配器都通过它发请求，不能替身 |
+| `commands`    | 空对象                                            | 插件把它列在 `inject` 里但代码零调用；缺了会永久 pending                                                 |
+| `connection`  | 自实现注册表（`src/connection.js`）               | Jet Hub 管理端点经此接入，请求原样透传                                                                   |
+| `llm`         | **真实** `@deepseek-ai/dsh-llm` 的 `LlmRuntime`   | 网关与各渠道适配器都通过它发请求，不能替身                                                               |
 
 > ⚠️ 凭据服务**必须走 `ctx.plugin()`**，不能 `new LocalCredentialProvider(...)`：
 > 载入既有凭据的逻辑在它的 `[Service.init]` 生成器里，只有被 cordis 作为插件
@@ -47,16 +47,16 @@ npm start            # 默认 http://127.0.0.1:8080/admin
 
 ## 环境变量
 
-| 变量 | 默认 | 说明 |
-| --- | --- | --- |
-| `CODEARTS2API_HOME` | `~/.codearts2api` | **本程序自己的状态目录**：账号池、凭据、网关 Key 全在这里 |
-| `PORT` | `8080` | 本服务端口（管理界面 + RPC + 可选反代） |
-| `HOST` | `0.0.0.0` | 监听地址 |
-| `PROXY_GATEWAY` | 关 | 置 `1` 时把 `/v1/*` 反代到插件网关（**容器部署必须开**） |
-| `DSH_OPENAI_GATEWAY_PORT` | `8326` | 插件网关端口（只绑 `127.0.0.1`，见下） |
-| `DSH_OPENAI_GATEWAY_ENABLED` | `1` | 置 `0/false/off/no` 则**强制停用**网关（面板开关会显示被 env 阻止，且无法再打开） |
-| `DSH_OPENAI_GATEWAY_API_KEY` | 自动生成 | 网关 Bearer Key，优先于文件 |
-| `LOG_LEVEL` | `info` | `silent` / `error` / `info` / `debug` |
+| 变量                         | 默认              | 说明                                                                              |
+| ---------------------------- | ----------------- | --------------------------------------------------------------------------------- |
+| `CODEARTS2API_HOME`          | `~/.codearts2api` | **本程序自己的状态目录**：账号池、凭据、网关 Key 全在这里                         |
+| `PORT`                       | `8080`            | 本服务端口（管理界面 + RPC + 可选反代）                                           |
+| `HOST`                       | `0.0.0.0`         | 监听地址                                                                          |
+| `PROXY_GATEWAY`              | 关                | 置 `1` 时把 `/v1/*` 反代到插件网关（**容器部署必须开**）                          |
+| `DSH_OPENAI_GATEWAY_PORT`    | `8326`            | 插件网关端口（只绑 `127.0.0.1`，见下）                                            |
+| `DSH_OPENAI_GATEWAY_ENABLED` | `1`               | 置 `0/false/off/no` 则**强制停用**网关（面板开关会显示被 env 阻止，且无法再打开） |
+| `DSH_OPENAI_GATEWAY_API_KEY` | 自动生成          | 网关 Bearer Key，优先于文件                                                       |
+| `LOG_LEVEL`                  | `info`            | `silent` / `error` / `info` / `debug`                                             |
 
 ### 状态目录：本程序独立，不跟随 DSH
 
@@ -107,12 +107,12 @@ react**，只是把这份静态文件发给浏览器。
 
 据此划分：
 
-| 包 | 分类 | 谁在用 |
-| --- | --- | --- |
-| `@deepseek-ai/cordis`、`dsh-llm`、`dsh-credentials`、`dsh-credentials-local`、`dsh-codearts-auth` | `dependencies` | **服务器进程运行期**真正 `import` |
-| `esbuild` | `devDependencies` | 只在 `npm run build` 时运行 |
-| `react`、`react-dom` | `devDependencies` | 只在构建期作为**输入**被 esbuild 读取；产物已内联 |
-| `jsdom` | `devDependencies` | 只在 `npm test` 里模拟浏览器 DOM |
+| 包                                                                                                | 分类              | 谁在用                                            |
+| ------------------------------------------------------------------------------------------------- | ----------------- | ------------------------------------------------- |
+| `@deepseek-ai/cordis`、`dsh-llm`、`dsh-credentials`、`dsh-credentials-local`、`dsh-codearts-auth` | `dependencies`    | **服务器进程运行期**真正 `import`                 |
+| `esbuild`                                                                                         | `devDependencies` | 只在 `npm run build` 时运行                       |
+| `react`、`react-dom`                                                                              | `devDependencies` | 只在构建期作为**输入**被 esbuild 读取；产物已内联 |
+| `jsdom`                                                                                           | `devDependencies` | 只在 `npm test` 里模拟浏览器 DOM                  |
 
 > ⚠️ 唯一的坑：`npm run build` **需要** devDependencies。若构建环境里设了
 > `NODE_ENV=production`，`npm install` 会默认跳过它们，构建直接失败。
@@ -235,15 +235,46 @@ server {
   —— 这是上游的优先级设计（env > 面板），不是开关坏了。
 - **端口冲突**（8326 被占用）：网关只记日志、跳过启动，不影响 `/admin`。
 
-## 测试
+## 测试与代码规范
 
 ```bash
-npm test
+npm test              # 单元 / 集成测试（node --test）
+npm run lint          # ESLint
+npm run lint:fix      # ESLint 自动修
+npm run format        # Prettier 写入
+npm run format:check  # Prettier 只检查（CI 用）
 ```
 
-覆盖：宿主装配（13 个 provider 注册、端点挂载）、`/admin` 真实渲染、
-账号增删改查、备份往返、网关启停（含端口真实释放）、模型 / 供应商开关、
-`/v1/*` 反代（含鉴权不被绕过与网关不可达时的错误信封）、SSE 流式。
+配置与 `../oc2api` 保持一致（同一套 `semi: false` / `printWidth: 120` 与
+flat config 写法），差异只有本项目特有的几点：
+
+**`eslint.config.js`**
+
+- **排除编译产物**：`public/admin.js`、`public/upstream-jet-hub.js` ——
+  它们是构建时从上游拷贝/打包出来的（约 1.6MB），既不是本仓库代码，
+  也会让 lint 从秒级变成分钟级。
+- **Node 与浏览器端分别配置 globals**：`src/`、`tests/` 用 `globals.node`；
+  `web/admin.jsx` 用 `globals.browser`（它用到 `document` / `fetch`）。
+- **`.jsx` 显式列进 `files`**：flat config 默认只匹配 `*.js`，不写的话
+  `web/admin.jsx` 会被**静默跳过**（不报错也不检查）。
+
+**`.prettierignore`**
+
+- 同样排除那两个产物（`npm run format` 会写文件，不排除就会把上游代码
+  重排一遍，既无意义、又可能改变产物）。
+- `public/admin.html` **不**排除 —— 它是手写源码（已实测：格式化后
+  `<script>` 的加载顺序不变，`/admin` 仍正常渲染）。
+- 另外排除 `package-lock.json` 与运行时状态目录。
+
+> ⚠️ 两个产物由 `npm run build` 生成，被 `.gitignore` 与 `.prettierignore`
+> 双重排除。**不要**提交或格式化它们。
+
+### 测试覆盖
+
+宿主装配（13 个 provider 注册、端点挂载）、`/admin` 真实渲染、账号增删改查、
+备份往返、网关启停（含端口真实释放）、模型 / 供应商开关、`/v1/*` 反代
+（含鉴权不被绕过、网关不可达时的错误信封）、SSE 流式、状态目录隔离
+（不污染 `~/.dsh`）、凭据可读性、关闭后无残留文件监听。
 
 ## 目录结构
 
@@ -260,6 +291,9 @@ src/
 web/admin.jsx     /admin 的薄入口（复用上游 JetHubPage）
 public/admin.html 页面外壳（两个 script + loader shim）
 build.mjs         前端构建（拷贝上游产物 + 打包入口）
+eslint.config.js  ESLint（flat config，排除编译产物）
+.prettierrc.json  代码风格（与 ../oc2api 一致）
+.prettierignore   排除编译产物与锁文件
 ```
 
 ## 升级上游：照这个步骤做
@@ -319,20 +353,22 @@ npm install "dsh-codearts-auth@git+https://gitee.com/iJetLi/deepseek-harness-cod
 npm run build
 ```
 
-### 第 4 步：测试
+### 第 4 步：测试与规范
 
 ```bash
-npm test
+npm test              # 行为测试
+npm run lint          # 上游若改了产物形态，这里能发现我们的代码跟不上了
+npm run format:check  # 确认代码风格一致
 ```
 
 按失败信息分两种处理：
 
-| 失败的是 | 说明 | 怎么办 |
-| --- | --- | --- |
-| `host.test.mjs` 的「13 个渠道」 | 上游**新增了渠道** | 打开 `tests/host.test.mjs`，把新渠道 id 加进 `EXPECTED_PROVIDERS` 数组（只改测试） |
-| `admin-ui.test.mjs` 的「只 external react/react-dom」 | 上游客户端产物多了一个外部依赖 | 复用方式要调：见 `web/admin.jsx` 里 `captured.factory()` 的 `require` 分支 |
-| `home-isolation.test.mjs` | 存储格式/隔离被改坏了 | 看具体断言，通常与 `src/home.js` 或凭据服务有关 |
-| 其它 | 契约漂移 | 对照 `src/upstream.js` 顶部契约表 |
+| 失败的是                                              | 说明                           | 怎么办                                                                             |
+| ----------------------------------------------------- | ------------------------------ | ---------------------------------------------------------------------------------- |
+| `host.test.mjs` 的「13 个渠道」                       | 上游**新增了渠道**             | 打开 `tests/host.test.mjs`，把新渠道 id 加进 `EXPECTED_PROVIDERS` 数组（只改测试） |
+| `admin-ui.test.mjs` 的「只 external react/react-dom」 | 上游客户端产物多了一个外部依赖 | 复用方式要调：见 `web/admin.jsx` 里 `captured.factory()` 的 `require` 分支         |
+| `home-isolation.test.mjs`                             | 存储格式/隔离被改坏了          | 看具体断言，通常与 `src/home.js` 或凭据服务有关                                    |
+| 其它                                                  | 契约漂移                       | 对照 `src/upstream.js` 顶部契约表                                                  |
 
 ### 第 5 步：启动确认契约（关键一步）
 
@@ -381,13 +417,13 @@ npm run build && npm test
 从 `784210d` 升到 `6fc1f61`（上游新增 zcode 双通道支持，改了
 `jet-hub-rpc.ts` / `zcode-*.ts` / 客户端 `jet-hub.js` 共 19 个文件）：
 
-| 步骤 | 结果 |
-| --- | --- |
-| 契约核对（路径 / 端点名 / inject） | **未变**，无需改动 |
-| 代码改动 | **0 行** |
-| `npm test` | 16/16 通过 |
-| 启动 | 契约核对通过，13 个渠道，界面正常渲染 |
-| 回滚命令 | 也验证过可用 |
+| 步骤                               | 结果                                  |
+| ---------------------------------- | ------------------------------------- |
+| 契约核对（路径 / 端点名 / inject） | **未变**，无需改动                    |
+| 代码改动                           | **0 行**                              |
+| `npm test`                         | 16/16 通过                            |
+| 启动                               | 契约核对通过，13 个渠道，界面正常渲染 |
+| 回滚命令                           | 也验证过可用                          |
 
 > ℹ️ 本次演练后**已还原**到项目原本锁定的 `784210d`（本次只交付文档，
 > 不替你决定升级）。要升到 `6fc1f61` 按上面步骤做即可。
@@ -403,22 +439,21 @@ node -e "console.log(require('./package.json').dependencies['dsh-codearts-auth']
 我们与上游的**代码**耦合只有一处：
 
 ```js
-import * as plugin from 'dsh-codearts-auth'   // src/host.js 唯一的一行
+import * as plugin from "dsh-codearts-auth" // src/host.js 唯一的一行
 ```
 
 其余全靠 cordis 的注入机制与 HTTP 转发。因此上游常见的改动类型
 （新增渠道、修协议、改额度逻辑、加模型、改 UI 布局）**都不需要动本仓库**：
 
-| 上游改了什么 | 我们要改 | 为什么 |
-| --- | --- | --- |
-| 新增一个渠道（provider） | **0 行**（仅测试期望列表） | 我们不含任何渠道名单，界面与 `provider.status` 都是动态的 |
-| 改某个渠道的协议/登录 | **0 行** | 逻辑全在上游 |
-| 改界面布局 / 样式 | **0 行**（只需 `npm run build`） | 界面是上游产物的原样复用 |
-| 改网关行为（/v1/*） | **0 行** | 网关是上游的，我们只转发 |
-| 加 RPC 方法 | **0 行** | 我们的转发是通用透传，不枚举方法 |
-| **改管理端点路径** | 1 个常量 | `src/upstream.js` |
-| **改 RPC 信封 / 线协议** | 1 个函数 | `src/upstream.js` 的 `rpcEnvelope()` |
-| **改客户端 loader 形态** | 可能 1~2 处 | `public/admin.html` + `web/admin.jsx` |
-| **改 slot 名 `settings.section`** | 1 个常量 | `src/upstream.js` |
-| **改插件 `inject` 列表** | `src/host.js` 的 provide | 少了服务插件会永久 pending |
-
+| 上游改了什么                      | 我们要改                         | 为什么                                                    |
+| --------------------------------- | -------------------------------- | --------------------------------------------------------- |
+| 新增一个渠道（provider）          | **0 行**（仅测试期望列表）       | 我们不含任何渠道名单，界面与 `provider.status` 都是动态的 |
+| 改某个渠道的协议/登录             | **0 行**                         | 逻辑全在上游                                              |
+| 改界面布局 / 样式                 | **0 行**（只需 `npm run build`） | 界面是上游产物的原样复用                                  |
+| 改网关行为（/v1/*）               | **0 行**                         | 网关是上游的，我们只转发                                  |
+| 加 RPC 方法                       | **0 行**                         | 我们的转发是通用透传，不枚举方法                          |
+| **改管理端点路径**                | 1 个常量                         | `src/upstream.js`                                         |
+| **改 RPC 信封 / 线协议**          | 1 个函数                         | `src/upstream.js` 的 `rpcEnvelope()`                      |
+| **改客户端 loader 形态**          | 可能 1~2 处                      | `public/admin.html` + `web/admin.jsx`                     |
+| **改 slot 名 `settings.section`** | 1 个常量                         | `src/upstream.js`                                         |
+| **改插件 `inject` 列表**          | `src/host.js` 的 provide         | 少了服务插件会永久 pending                                |

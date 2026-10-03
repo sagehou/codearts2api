@@ -33,14 +33,14 @@ const THRESHOLDS = {
  */
 export function resolveLogLevel(env = process.env) {
   const raw = env.LOG_LEVEL?.trim().toLowerCase()
-  if (raw === undefined || raw === '') return THRESHOLDS.info
+  if (raw === undefined || raw === "") return THRESHOLDS.info
   return THRESHOLDS[raw] ?? THRESHOLDS.info
 }
 
 /** 时间戳：`HH:MM:SS.mmm`，本地时区，够看又不啰嗦。 */
 function stamp() {
   const now = new Date()
-  const pad = (value, width = 2) => String(value).padStart(width, '0')
+  const pad = (value, width = 2) => String(value).padStart(width, "0")
   return `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}.${pad(now.getMilliseconds(), 3)}`
 }
 
@@ -61,16 +61,16 @@ export function installLogger(ctx, env = process.env) {
       const text = args
         .map((arg) => {
           if (arg instanceof Error) return arg.stack ?? arg.message
-          if (typeof arg === 'string') return arg
+          if (typeof arg === "string") return arg
           try {
             return JSON.stringify(arg)
           } catch {
             return String(arg)
           }
         })
-        .join(' ')
+        .join(" ")
       const line = `${stamp()} ${type.toUpperCase().padEnd(5)} [${name}] ${text}`
-      if (type === 'error' || type === 'warn') console.error(line)
+      if (type === "error" || type === "warn") console.error(line)
       else console.log(line)
     },
   })

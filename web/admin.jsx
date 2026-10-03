@@ -29,9 +29,9 @@
  * 不会被本仓库的拷贝拖住（这是选择复用而非自研的主要理由）。
  */
 
-import * as React from 'react'
-import { createRoot } from 'react-dom/client'
-import { createPortal } from 'react-dom'
+import * as React from "react"
+import { createRoot } from "react-dom/client"
+import { createPortal } from "react-dom"
 
 /** 上游 bundle 通过 `__ModuleLoader__` 交出的一行。 */
 const captured = globalThis.__JET_HUB_ROW__
@@ -47,13 +47,13 @@ const captured = globalThis.__JET_HUB_ROW__
  * 时抛带 `code` 的 Error，因为界面按 `error.code` 与 message 做提示。
  */
 async function rpcCall(method, payload, signal) {
-  const response = await fetch('/api/jet-hub', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
+  const response = await fetch("/api/jet-hub", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      type: 'client-request',
-      rpcId: (globalThis.crypto?.randomUUID?.() ?? String(Date.now())),
-      method: 'jet-hub',
+      type: "client-request",
+      rpcId: globalThis.crypto?.randomUUID?.() ?? String(Date.now()),
+      method: "jet-hub",
       payload: { method, payload },
     }),
     signal,
@@ -63,11 +63,11 @@ async function rpcCall(method, payload, signal) {
   const result = body?.result
   if (result?.ok === true) return result.value
   if (result?.ok === false) {
-    const error = new Error(result.error?.message ?? 'Jet Hub 请求失败')
+    const error = new Error(result.error?.message ?? "Jet Hub 请求失败")
     error.code = result.error?.code
     throw error
   }
-  throw new Error('管理接口返回了无法识别的响应')
+  throw new Error("管理接口返回了无法识别的响应")
 }
 
 /**
@@ -76,13 +76,13 @@ async function rpcCall(method, payload, signal) {
  * @returns 组件；任何一步失败都抛出可读错误（而不是白屏）。
  */
 function loadUpstreamPage() {
-  if (captured === null || typeof captured !== 'object' || typeof captured.factory !== 'function') {
-    throw new Error('上游 jet-hub 客户端 bundle 未先加载（upstream-jet-hub.js 缺失或加载失败）')
+  if (captured === null || typeof captured !== "object" || typeof captured.factory !== "function") {
+    throw new Error("上游 jet-hub 客户端 bundle 未先加载（upstream-jet-hub.js 缺失或加载失败）")
   }
 
   const upstream = captured.factory((name) => {
-    if (name === 'react') return React
-    if (name === 'react-dom') return { createPortal }
+    if (name === "react") return React
+    if (name === "react-dom") return { createPortal }
     throw new Error(`上游 bundle 请求了未预期的模块：${name}`)
   })
 
@@ -95,7 +95,7 @@ function loadUpstreamPage() {
     slots: {
       inject: (_name, callback) => callback(),
       register: (options, component) => {
-        if (options?.name === 'settings.section') page = component
+        if (options?.name === "settings.section") page = component
         return () => {}
       },
     },
@@ -104,17 +104,17 @@ function loadUpstreamPage() {
     connection: {
       rpc: {
         async call() {
-          throw new Error('本宿主不提供 connection.rpc.call，请经 rpcCall 直连 /api/jet-hub')
+          throw new Error("本宿主不提供 connection.rpc.call，请经 rpcCall 直连 /api/jet-hub")
         },
       },
     },
   })
 
-  if (page === null) throw new Error('上游未注册 settings.section，无法渲染管理界面')
+  if (page === null) throw new Error("上游未注册 settings.section，无法渲染管理界面")
   return page
 }
 
-const root = document.getElementById('admin-root')
+const root = document.getElementById("admin-root")
 try {
   const Page = loadUpstreamPage()
   // `close` 传 undefined：上游页头会据此**不渲染**「关闭」按钮

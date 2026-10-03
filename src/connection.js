@@ -44,11 +44,11 @@ export function createConnection() {
        * 静默注册一个永远不可用的端点更好排查。
        */
       register(route) {
-        if (route === null || typeof route !== 'object' || typeof route.path !== 'string' || route.path.length === 0) {
-          throw new TypeError('connection.fetch.register: route.path 必须是非空字符串')
+        if (route === null || typeof route !== "object" || typeof route.path !== "string" || route.path.length === 0) {
+          throw new TypeError("connection.fetch.register: route.path 必须是非空字符串")
         }
-        if (typeof route.fetch !== 'function') {
-          throw new TypeError('connection.fetch.register: route.fetch 必须是函数')
+        if (typeof route.fetch !== "function") {
+          throw new TypeError("connection.fetch.register: route.fetch 必须是函数")
         }
         routes.set(route.path, route)
         return () => {
@@ -59,7 +59,7 @@ export function createConnection() {
     // 服务端从不调用；给一个显式失败的替身，避免「以为能调」的静默 undefined。
     rpc: {
       async call() {
-        throw new Error('connection.rpc.call 在本宿主中不可用（它属于 GUI 客户端侧）')
+        throw new Error("connection.rpc.call 在本宿主中不可用（它属于 GUI 客户端侧）")
       },
     },
   }
@@ -77,7 +77,7 @@ export function createConnection() {
     // 分发前先按 methods 筛（与 DSH 分发器同序）：让 handler 收到的请求
     // 一定在它声明的集合内，handler 内部的 405 分支才是纯粹的防御。
     if (methods !== undefined && methods.length > 0 && !methods.includes(request.method)) {
-      return new Response('method not allowed', { status: 405 })
+      return new Response("method not allowed", { status: 405 })
     }
     return route.fetch(request)
   }

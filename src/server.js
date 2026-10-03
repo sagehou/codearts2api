@@ -30,13 +30,13 @@
  * Dockerfile 显式设为 1。
  */
 
-import { createServer } from 'node:http'
-import { readFileSync, existsSync } from 'node:fs'
-import { extname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { Readable } from 'node:stream'
+import { createServer } from "node:http"
+import { readFileSync, existsSync } from "node:fs"
+import { extname, join } from "node:path"
+import { fileURLToPath } from "node:url"
+import { Readable } from "node:stream"
 
-import { CARRIER_PATH, JET_HUB_PATH, rpcEnvelope } from './upstream.js'
+import { CARRIER_PATH, JET_HUB_PATH, rpcEnvelope } from "./upstream.js"
 
 /** 请求体上限，与插件网关同值（16MB）。 */
 const BODY_LIMIT = 16 * 1024 * 1024
@@ -44,29 +44,30 @@ const BODY_LIMIT = 16 * 1024 * 1024
 /** 网关目标地址的缓存时长：网关可被开关启停，端口可能变，故不能永久缓存。 */
 const TARGET_TTL_MS = 5_000
 
-const here = fileURLToPath(new URL('.', import.meta.url))
+const here = fileURLToPath(new URL(".", import.meta.url))
 /** 静态资源目录（`admin.html` 与构建出的 `admin.js`）。 */
-const PUBLIC_DIR = join(here, '..', 'public')
+const PUBLIC_DIR = join(here, "..", "public")
 
 const CONTENT_TYPES = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.mjs': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.svg': 'image/svg+xml',
-  '.png': 'image/png',
-  '.ico': 'image/x-icon',
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".ico": "image/x-icon",
 }
 
 const send = (response, status, body, headers = {}) => {
-  response.writeHead(status, { 'cache-control': 'no-store', ...headers })
+  response.writeHead(status, { "cache-control": "no-store", ...headers })
   response.end(body)
 }
 
-const sendJson = (response, status, value) => send(response, status, JSON.stringify(value), {
-  'content-type': 'application/json; charset=utf-8',
-})
+const sendJson = (response, status, value) =>
+  send(response, status, JSON.stringify(value), {
+    "content-type": "application/json; charset=utf-8",
+  })
 
 /**
  * 静态文件白名单。
@@ -75,17 +76,24 @@ const sendJson = (response, status, value) => send(response, status, JSON.string
  * 引入目录穿越。
  */
 const STATIC_FILES = new Map([
-  ['/', 'admin.html'],
-  ['/admin', 'admin.html'],
-  ['/admin/', 'admin.html'],
-  ['/admin.js', 'admin.js'],
-  ['/upstream-jet-hub.js', 'upstream-jet-hub.js'],
+  ["/", "admin.html"],
+  ["/admin", "admin.html"],
+  ["/admin/", "admin.html"],
+  ["/admin.js", "admin.js"],
+  ["/upstream-jet-hub.js", "upstream-jet-hub.js"],
 ])
 
 /** 逐跳头：不应转发（由本跳的连接自己决定）。 */
 const HOP_BY_HOP = new Set([
-  'host', 'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
-  'te', 'trailer', 'transfer-encoding', 'upgrade',
+  "host",
+  "connection",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
 ])
 
 /** 把 WHATWG Request 所需的请求体读成 Buffer（带上限）。 */
@@ -93,17 +101,17 @@ function readBody(request) {
   return new Promise((resolve, reject) => {
     const chunks = []
     let size = 0
-    request.on('data', (chunk) => {
+    request.on("data", (chunk) => {
       size += chunk.length
       if (size > BODY_LIMIT) {
-        reject(new Error('request body too large'))
+        reject(new Error("request body too large"))
         request.destroy()
         return
       }
       chunks.push(chunk)
     })
-    request.on('error', reject)
-    request.on('end', () => resolve(Buffer.concat(chunks)))
+    request.on("error", reject)
+    request.on("end", () => resolve(Buffer.concat(chunks)))
   })
 }
 
@@ -121,15 +129,17 @@ async function toWebRequest(request, url) {
     if (Array.isArray(value)) for (const item of value) headers.append(key, item)
     else headers.set(key, value)
   }
-  const method = request.method ?? 'GET'
-  const body = method === 'GET' || method === 'HEAD' ? undefined : await readBody(request)
-  return new Request(url, { method, headers, body, ...body === undefined ? {} : { duplex: 'half' } })
+  const method = request.method ?? "GET"
+  const body = method === "GET" || method === "HEAD" ? undefined : await readBody(request)
+  return new Request(url, { method, headers, body, ...(body === undefined ? {} : { duplex: "half" }) })
 }
 
 /** 把 WHATWG Response 写回 node res。 */
 async function sendWebResponse(response, web) {
   const headers = {}
-  web.headers.forEach((value, key) => { headers[key] = value })
+  web.headers.forEach((value, key) => {
+    headers[key] = value
+  })
   response.writeHead(web.status, headers)
   response.end(Buffer.from(await web.arrayBuffer()))
 }
@@ -161,8 +171,8 @@ export function createHttpServer(host, options = {}) {
     else {
       // 网关未运行/读不到：退回 env 默认（请求会失败并给出可读错误）。
       const raw = process.env.DSH_OPENAI_GATEWAY_PORT
-      const port = raw === undefined || raw.trim() === '' ? 8326 : Number.parseInt(raw, 10)
-      resolved = { host: '127.0.0.1', port: Number.isInteger(port) ? port : 8326 }
+      const port = raw === undefined || raw.trim() === "" ? 8326 : Number.parseInt(raw, 10)
+      resolved = { host: "127.0.0.1", port: Number.isInteger(port) ? port : 8326 }
     }
     targetCache = { at: Date.now(), ...resolved }
     return targetCache
@@ -182,8 +192,8 @@ export function createHttpServer(host, options = {}) {
       else headers.set(key, value)
     }
 
-    const method = request.method ?? 'GET'
-    const hasBody = method !== 'GET' && method !== 'HEAD'
+    const method = request.method ?? "GET"
+    const hasBody = method !== "GET" && method !== "HEAD"
 
     let upstream
     try {
@@ -193,7 +203,7 @@ export function createHttpServer(host, options = {}) {
         // 直接传 req（Readable）：undici 会流式发送，不把 16MB 上限内的请求体
         // 整个读进内存。`duplex: 'half'` 是带流 body 时的必需项。
         body: hasBody ? request : undefined,
-        ...hasBody ? { duplex: 'half' } : {},
+        ...(hasBody ? { duplex: "half" } : {}),
         signal: AbortSignal.timeout(options.upstreamTimeoutMs ?? 600_000),
       })
     } catch (error) {
@@ -203,8 +213,8 @@ export function createHttpServer(host, options = {}) {
       sendJson(response, 502, {
         error: {
           message: `本机网关不可达（${target.host}:${target.port}）。请在 /admin 里确认网关已开启。`,
-          type: 'server_error',
-          code: 'gateway_unreachable',
+          type: "server_error",
+          code: "gateway_unreachable",
         },
       })
       return
@@ -224,18 +234,20 @@ export function createHttpServer(host, options = {}) {
     // 流式回写：SSE 的每一帧立即到达客户端，而不是等整段生成完。
     // 客户端中途断开时销毁上游流，避免上游继续生成白耗额度。
     const stream = Readable.fromWeb(upstream.body)
-    response.once('close', () => { if (!response.writableEnded) stream.destroy() })
-    stream.on('error', () => response.destroy())
+    response.once("close", () => {
+      if (!response.writableEnded) stream.destroy()
+    })
+    stream.on("error", () => response.destroy())
     stream.pipe(response)
   }
 
   const server = createServer(async (request, response) => {
-    const url = new URL(request.url ?? '/', `http://${request.headers.host ?? '127.0.0.1'}`)
+    const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "127.0.0.1"}`)
     const path = url.pathname
 
     try {
       // ── 健康检查 ──
-      if (path === '/healthz') {
+      if (path === "/healthz") {
         const gateway = await readGatewayState(host)
         sendJson(response, 200, {
           ok: true,
@@ -249,7 +261,7 @@ export function createHttpServer(host, options = {}) {
       }
 
       // ── OpenAI 兼容反代（可选）──
-      if (proxyGateway && path.startsWith('/v1/')) {
+      if (proxyGateway && path.startsWith("/v1/")) {
         await proxyToGateway(request, response, url)
         return
       }
@@ -258,7 +270,7 @@ export function createHttpServer(host, options = {}) {
       if (path === JET_HUB_PATH) {
         const outcome = await host.handleRpc(JET_HUB_PATH, await toWebRequest(request, url.href))
         if (outcome === undefined) {
-          sendJson(response, 404, { error: 'Jet Hub 端点未注册' })
+          sendJson(response, 404, { error: "Jet Hub 端点未注册" })
           return
         }
         await sendWebResponse(response, outcome)
@@ -269,7 +281,7 @@ export function createHttpServer(host, options = {}) {
       if (path === CARRIER_PATH) {
         const outcome = await host.handleRpc(CARRIER_PATH, await toWebRequest(request, url.href))
         if (outcome === undefined) {
-          send(response, 404, '载体页未注册')
+          send(response, 404, "载体页未注册")
           return
         }
         await sendWebResponse(response, outcome)
@@ -278,19 +290,19 @@ export function createHttpServer(host, options = {}) {
 
       // ── 静态资源 ──
       const file = STATIC_FILES.get(path)
-      if (file !== undefined && (request.method === 'GET' || request.method === 'HEAD')) {
+      if (file !== undefined && (request.method === "GET" || request.method === "HEAD")) {
         const target = join(PUBLIC_DIR, file)
         if (!existsSync(target)) {
-          send(response, 503, '管理界面尚未构建：请先执行 npm run build')
+          send(response, 503, "管理界面尚未构建：请先执行 npm run build")
           return
         }
         send(response, 200, readFileSync(target), {
-          'content-type': CONTENT_TYPES[extname(target)] ?? 'application/octet-stream',
+          "content-type": CONTENT_TYPES[extname(target)] ?? "application/octet-stream",
         })
         return
       }
 
-      sendJson(response, 404, { error: 'not found' })
+      sendJson(response, 404, { error: "not found" })
     } catch (error) {
       // 兜底：任何未捕获异常都必须变成响应，否则连接会挂住、前端表现为「点了没反应」。
       options.logger?.error?.(`[http] ${request.method} ${path} 处理失败：${String(error)}`)
@@ -312,11 +324,13 @@ async function readGatewayState(host) {
   try {
     const route = host.routes.get(JET_HUB_PATH)
     if (route === undefined) return null
-    const web = await route.fetch(new Request(`http://127.0.0.1${JET_HUB_PATH}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(rpcEnvelope('gateway.getEnabled', {}, 'healthz')),
-    }))
+    const web = await route.fetch(
+      new Request(`http://127.0.0.1${JET_HUB_PATH}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(rpcEnvelope("gateway.getEnabled", {}, "healthz")),
+      }),
+    )
     const parsed = await web.json()
     const value = parsed?.result?.value
     if (value === undefined) return null
@@ -339,7 +353,7 @@ async function readGatewayState(host) {
 /** 已注册的 llm provider id（读不到就回空数组）。 */
 function providerIds(host) {
   try {
-    const llm = host.ctx.get('llm')
+    const llm = host.ctx.get("llm")
     const listed = llm?.listProviders?.()
     return Array.isArray(listed) ? listed.map((entry) => entry.id) : []
   } catch {
