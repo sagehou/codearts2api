@@ -23,6 +23,7 @@ const EXPECTED_PROVIDERS = [
   "loomy",
   "raccoon",
   "minimax",
+  "gemini",
   "zcode",
   "opencode",
 ]
@@ -35,9 +36,21 @@ test("插件在无 DSH 的纯 cordis 宿主上完整加载", async (t) => {
   const llm = app.host.ctx.get("llm")
   assert.ok(llm, "ctx.llm 应存在")
   const providers = llm.listProviders().map((entry) => entry.id)
-  for (const expected of EXPECTED_PROVIDERS) {
-    assert.ok(providers.includes(expected), `provider ${expected} 应已注册，实际：${providers.join(", ")}`)
-  }
+
+  // ⚠️ 双向断言，**不能只查「期望的都在」**。
+  //
+  // 只写 `providers.includes(expected)` 的话，上游**新增渠道**时会静默通过
+  // （旧期望仍是子集），人就不会注意到 `EXPECTED_PROVIDERS` 该更新了。
+  // 本项目亲历过：上游加 gemini 时测试仍然全绿，与本文件里那句注释
+  // 「上游新增渠道时这条会失败」的说法不符 —— 现在真的会失败了。
+  //
+  // 故意用 `deepEqual`（集合 + 顺序）：新增或删除渠道都会红，强迫人来看一眼。
+  assert.deepEqual(
+    providers,
+    EXPECTED_PROVIDERS,
+    `provider 列表与期望不一致 —— 上游多半增删了渠道。\n  期望：${EXPECTED_PROVIDERS.join(", ")}\n  实际：${providers.join(", ")}\n` +
+      "若是上游新增：把新渠道 id 按注册顺序加进 EXPECTED_PROVIDERS（只改测试，不改产品代码）。",
+  )
 
   // ② Jet Hub 的管理端点注册到了 connection seam 上。
   assert.ok(app.host.routes.has("/api/jet-hub"), "Jet Hub 管理端点应已注册")
