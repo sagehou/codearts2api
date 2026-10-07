@@ -115,9 +115,27 @@ test("/admin 能渲染出上游 Jet Hub 界面", async (t) => {
   assert.match(html, /dim-jh-headerActions/, "页头应有操作按钮区")
 })
 
-test("上游 bundle 只请求 react / react-dom 两个模块", () => {
-  // 这条断言守住「复用」的前提：上游若新增第三个 external，我们的 shim 会失效。
+test("上游 bundle 只请求我们 shim 能提供的模块", () => {
+  // 这条断言守住「复用」的前提：`web/admin.jsx` 里的 `captured.factory(require)`
+  // 只认 react / react-dom。上游若引入**第三个** external（比如某个 UI 库），
+  // factory 会抛「未预期的模块」，界面白屏 —— 那时得同步改 shim。
+  //
+  // ⚠️ 断言的是**子集**而不是精确集合：上游可以不再需要 react-dom。
+  //    实际发生过（2026-10-03 升级）：新版上游把 react-dom 收进内部，
+  //    bundle 只剩 `require("react")`，而界面照常渲染 —— 因为**挂载是我们的
+  //    入口做的**（`web/admin.jsx` 的 createRoot / createPortal）。
+  //    写死 `['react','react-dom']` 会让这种「上游做了减法」的升级误报失败。
   const bundle = readFileSync(join(root, "public/upstream-jet-hub.js"), "utf8")
-  const required = new Set([...bundle.matchAll(/require\("([^"]+)"\)/g)].map((match) => match[1]))
-  assert.deepEqual([...required].sort(), ["react", "react-dom"])
+  const required = [...new Set([...bundle.matchAll(/require\("([^"]+)"\)/g)].map((m) => m[1]))]
+  const supported = ["react", "react-dom"]
+  for (const name of required) {
+    assert.ok(
+      supported.includes(name),
+      `上游 bundle 请求了未预期的模块 "${name}"（它只应请求 ${supported.join(" / ")}）。\n` +
+        "这会让 web/admin.jsx 里的 factory(require) 抛错、/admin 白屏；" +
+        "请在 web/admin.jsx 的 require 分支里补上它。",
+    )
+  }
+  // 正面确认：至少要有 react，否则 bundle 不是我们认识的那个形态。
+  assert.ok(required.includes("react"), `上游 bundle 应请求 react，实际：${required.join(", ")}`)
 })

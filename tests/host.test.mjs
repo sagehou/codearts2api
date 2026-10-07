@@ -26,6 +26,9 @@ const EXPECTED_PROVIDERS = [
   "gemini",
   "zcode",
   "opencode",
+  // 上游 2026-10-03 新增：跨渠道自动选号路由（AUTO_PROVIDER = "jet-hub-auto"）。
+  // 它不是独立渠道，而是「在 AUTO_PROVIDERS 里按额度/限流自动挑一个」的聚合入口。
+  "jet-hub-auto",
 ]
 
 test("插件在无 DSH 的纯 cordis 宿主上完整加载", async (t) => {
