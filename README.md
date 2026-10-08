@@ -11,6 +11,9 @@
 > 📋 变更记录见 [`CHANGELOG.md`](CHANGELOG.md)（**新的在最前面**）——
 > 含历次上游升级的验证结果与踩到的坑。
 
+<img width="1920" height="1031" alt="ef2d06ff-7afb-46b5-8de5-7da91110793d" src="https://github.com/user-attachments/assets/0fc7e323-2830-49e0-898f-88e28c631a71" />
+
+
 ## 它是怎么做到的
 
 上游插件本身就是一个 **cordis 插件**，入口是 `apply(ctx)`，宿主依赖面只有这五个服务。
