@@ -10,7 +10,7 @@ import { test } from "node:test"
 import assert from "node:assert/strict"
 import { startTestApp, rpc } from "./helpers.mjs"
 
-/** 期望注册的 provider（12 个上游渠道 + opencode 的匿名通道）。 */
+/** 期望注册的 provider（14 个渠道 + aggregate / jet-hub-auto 两条聚合路由）。 */
 const EXPECTED_PROVIDERS = [
   "codearts",
   "buddy",
@@ -26,7 +26,9 @@ const EXPECTED_PROVIDERS = [
   "gemini",
   "zcode",
   "opencode",
-  // 上游 2026-10-03 新增：跨渠道自动选号路由（AUTO_PROVIDER = "jet-hub-auto"）。
+  // 上游 2026-10-08 升级新增：同一模型跨渠道归一化、按额度临期排序并失败切换。
+  "aggregate",
+  // 跨渠道自动选号路由（AUTO_PROVIDER = "jet-hub-auto"）。
   // 它不是独立渠道，而是「在 AUTO_PROVIDERS 里按额度/限流自动挑一个」的聚合入口。
   "jet-hub-auto",
 ]
@@ -62,6 +64,19 @@ test("插件在无 DSH 的纯 cordis 宿主上完整加载", async (t) => {
   const listed = await rpc(app.origin, "account.list", { provider: "codearts" })
   assert.equal(listed.ok, true, `account.list 应成功：${JSON.stringify(listed)}`)
   assert.ok(Array.isArray(listed.value.accounts), "accounts 应是数组")
+})
+
+test("聚合目录与实际渠道 RPC 无需新增转发代码即可访问", async (t) => {
+  const app = await startTestApp()
+  t.after(() => app.close())
+
+  const catalog = await rpc(app.origin, "aggregate.catalog", { force: true })
+  assert.equal(catalog.ok, true, `aggregate.catalog 应成功：${JSON.stringify(catalog)}`)
+  assert.ok(Array.isArray(catalog.value.models), "聚合目录应返回 models 数组")
+
+  const active = await rpc(app.origin, "aggregate.activeProvider", {})
+  assert.equal(active.ok, true, `aggregate.activeProvider 应成功：${JSON.stringify(active)}`)
+  assert.equal(active.value.provider, null, "尚未转发请求时不应臆造实际渠道")
 })
 
 test("/healthz 汇总服务状态", async (t) => {

@@ -4,7 +4,7 @@
 的 **Jet Hub 多渠道账号管理** 与 **本机 OpenAI 网关** 搬到独立后端运行，
 **不依赖 DSH 宿主**，用于后端 / 容器部署。
 
-- `/admin` —— 上游 Jet Hub 设置页（**原样复用**，14 个渠道的增删改查 + 网关开关）
+- `/admin` —— 上游 Jet Hub 设置页（**原样复用**，14 个渠道的增删改查 + 聚合设置面板 + 网关开关）
 - `POST /api/jet-hub` —— Jet Hub 管理 RPC（上游实现的透传）
 - `/v1/models`、`/v1/chat/completions`、`/v1/responses` —— OpenAI 兼容接口（上游网关）
 
@@ -137,6 +137,11 @@ echo "$KEY"
 
 模型 ID 形如 `provider/模型名`（如 `codearts/deepseek-v4.1-flash`、
 `opencode/big-pickle`），**必须带渠道前缀**。
+
+上游还提供两条聚合路由：`aggregate/<规范模型名>` 把同一模型的跨渠道候选归一化，
+按额度临期顺序选择并在失败时切换；`jet-hub-auto/auto` 自动选渠道与模型。
+`/admin` 的「聚合 (跨渠道)」面板可查看候选并设置是否参与轮换；实际可用模型以
+`/v1/models` 返回为准，需先配置候选渠道账号。
 
 ## 部署
 
@@ -478,7 +483,7 @@ npm start
 
 ```bash
 # 打开 http://127.0.0.1:8080/admin
-# 1. 左侧渠道列表完整（当前 14 个渠道 + 1 条聚合路由）
+# 1. 左侧导航完整（14 个渠道 + aggregate 聚合设置面板；另有 jet-hub-auto 路由）
 # 2. 账号列表能读出 source（不是「凭据未配置」）
 # 3. 点页头「网关」→ 开关能开关、能复制 Key
 ```
