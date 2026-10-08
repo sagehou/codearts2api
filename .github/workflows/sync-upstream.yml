@@ -1,0 +1,50 @@
+name: Sync upstream
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      ref: ${{ steps.sync.outputs.ref }}
+      changed: ${{ steps.sync.outputs.changed }}
+    steps:
+      - name: Merge upstream into the default branch
+        id: sync
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          before=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$DEFAULT_BRANCH" --jq '.object.sha')
+          gh api --method POST "repos/$GITHUB_REPOSITORY/merge-upstream" -f branch="$DEFAULT_BRANCH"
+          after=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$DEFAULT_BRANCH" --jq '.object.sha')
+          echo "ref=$after" >> "$GITHUB_OUTPUT"
+          if [[ "$before" != "$after" ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  publish:
+    needs: sync
+    if: needs.sync.outputs.changed == 'true' || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: read
+      packages: write
+    # GITHUB_TOKEN 的同步提交不会触发 push 工作流，直接调用镜像构建。
+    uses: ./.github/workflows/publish-image.yml
+    with:
+      ref: ${{ needs.sync.outputs.ref }}
+      publish_latest: true
