@@ -118,7 +118,7 @@ test("PROXY_GATEWAY 开启时 /v1/* 经本服务透明转发", async (t) => {
   const unauthorized = await fetch(`${app.origin}/v1/models`)
   assert.equal(unauthorized.status, 401, "反代不应绕过网关鉴权")
 
-  // ② 带 Key：拿到与直连一致的模型目录。
+  // ② 带 Key：反代能拿到正常的模型目录。
   const throughProxy = await fetch(`${app.origin}/v1/models`, {
     headers: { authorization: `Bearer ${key}` },
   })
@@ -126,15 +126,34 @@ test("PROXY_GATEWAY 开启时 /v1/* 经本服务透明转发", async (t) => {
   const proxied = await throughProxy.json()
   assert.equal(proxied.object, "list")
 
-  const direct = await fetch(`http://${status.value.address.host}:${status.value.address.port}/v1/models`, {
-    headers: { authorization: `Bearer ${key}` },
-  })
-  const directBody = await direct.json()
-  assert.deepEqual(
-    proxied.data.map((model) => model.id),
-    directBody.data.map((model) => model.id),
-    "反代结果应与直连完全一致",
-  )
+  // ③ 反代结果应与直连一致。
+  //
+  // ⚠️ **两侧必须在同一轮里并发比对**，而不是「先读一侧、再读另一侧」。
+  //
+  // 上游网关的模型目录是**异步长出来**的：`apply()` 返回时 OpenCode 的匿名通道
+  // 与其它渠道的远端目录都还在路上，随后才陆续落进目录里。顺序读两次会落在
+  // 「长大前」与「长大后」两份快照上而**偶发**失败。
+  //
+  // 本项目亲历（2026-10-10 升级后）：25 次运行红 3 次，差异恒为直连多出几个
+  // `opencode/*` —— 是**测试时序**问题，不是反代丢了模型。
+  //
+  // 故逐轮并发读两侧，直到相等；始终不等则由断言报出真实差异。
+  // ⚠️ 有意**不**放松成子集断言：子集会让「反代真的丢模型」也变绿。
+  const directOrigin = `http://${status.value.address.host}:${status.value.address.port}`
+  const readIds = async (origin) => {
+    const response = await fetch(`${origin}/v1/models`, { headers: { authorization: `Bearer ${key}` } })
+    assert.equal(response.status, 200)
+    return (await response.json()).data.map((model) => model.id)
+  }
+  const readBoth = () => Promise.all([readIds(app.origin), readIds(directOrigin)])
+
+  let [proxiedIds, directIds] = await readBoth()
+  const deadline = Date.now() + 15_000
+  while (proxiedIds.join("\n") !== directIds.join("\n") && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    ;[proxiedIds, directIds] = await readBoth()
+  }
+  assert.deepEqual(proxiedIds, directIds, "反代结果应与直连完全一致")
 })
 
 test("网关不可达时反代回可读的 OpenAI 错误信封", async (t) => {
