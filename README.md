@@ -38,8 +38,10 @@
   - [测试与规范](#测试与规范)
   - [测试覆盖](#测试覆盖)
   - [目录结构](#目录结构)
-- [升级上游](#升级上游)
-- [升级时需要改多少代码](#升级时需要改多少代码)
+- [变更记录与升级](#变更记录与升级)
+  - [CHANGELOG 怎么写](#changelog-怎么写)
+  - [升级时需要改多少代码](#升级时需要改多少代码)
+  - [升级流程](#升级流程)
 
 ## 特性
 
@@ -62,8 +64,8 @@
 | `GET /v1/models`、`POST /v1/chat/completions`、`POST /v1/responses` | OpenAI 兼容接口（上游网关）             |
 | `GET /healthz`                                                      | 健康检查（不含密钥，可给监控用）        |
 
-> 📋 变更记录见 [`CHANGELOG.md`](CHANGELOG.md)（**新的在最前面**），含历次上游升级的
-> 验证结果与踩到的坑。
+> 📋 历次变更见 [`CHANGELOG.md`](CHANGELOG.md)，组织方式与升级流程见
+> [变更记录与升级](#变更记录与升级)。
 
 ## 快速开始
 
@@ -99,24 +101,16 @@ npm start            # 默认 http://127.0.0.1:8080/admin
 
 ### 状态目录
 
-本程序是**独立网关**，状态全放在自己的目录（默认 `~/.codearts2api`），**不读写** `~/.dsh`。
-启动时会把 `DSH_HOME` 与 `DSH_JET_HUB_STATE_DIR` 两个环境变量**覆盖**成这个目录
-（插件内部所有落盘点都读它们，这是让插件待在自家目录的唯一办法），因此外层 shell 里
-已有的 `DSH_HOME`（DSH 自己导出的）不会把我们的数据带进 DSH 的目录。
-
-> ⚠️ 早期版本沿用了插件的判据（`DSH_HOME` → `~/.dsh`），于是在装过 DSH 的机器上会把
-> 账号写进 `~/.dsh`，与 DSH 抢同一份状态 —— 且当时凭据文件名写的是
-> `jet-hub/credentials.json`（臆造格式），而真实 DSH 用 `.credentials.yaml`，于是界面
-> 一直提示「凭据未配置」。现已修正。
+状态全放在自己的目录（默认 `~/.codearts2api`），**不读写** `~/.dsh`。启动时会把
+`DSH_HOME` 与 `DSH_JET_HUB_STATE_DIR` **覆盖**成这个目录 —— 插件内部所有落盘点都读它们，
+这是让它待在自家目录的唯一办法（外层 shell 已有的 `DSH_HOME` 因此不会把数据带走）。
 
 ### 从 DSH 或旧版本迁移账号
 
-新版本启动时用的是**空目录**，所以第一次跑起来看不到原有账号。两种搬法：
+新版本用的是空目录，第一次跑看不到原有账号。两种搬法：
 
-**方式 A：直接拷文件（推荐，最快）**
-
-本程序的存储格式与 DSH **完全一致**（`jet-hub/state.json` + `.credentials.yaml`），
-所以直接把两个文件拷过去即可（已实测：账号与凭据全部可读）：
+**方式 A：直接拷文件（推荐）** —— 存储格式与 DSH **完全一致**
+（`jet-hub/state.json` + `.credentials.yaml`），直接拷两个文件即可：
 
 ```bash
 mkdir -p ~/.codearts2api/jet-hub
@@ -127,10 +121,8 @@ chmod 600 ~/.codearts2api/.credentials.yaml      # 权限校验要求，否则�
 
 > ⚠️ 别整目录拷：`~/.dsh` 里还有 DSH 自己的缓存与 records 段，只需上面两个文件。
 
-**方式 B：走界面备份**
-
-用 `/admin` 的「备份」导出 → 在目标实例「恢复」导入（自包含 JSON，凭据一并带走）。
-导入模式的区别见[远程部署的登录隧道](#远程部署的登录隧道)。
+**方式 B：走界面备份** —— `/admin` 的「备份」导出 → 目标实例「恢复」导入
+（自包含 JSON，凭据一并带走）。导入模式的区别见[远程部署的登录隧道](#远程部署的登录隧道)。
 
 > ⚠️ 无论哪种，**不要再让两个程序共用同一个目录**：它们对同一份状态各有假设，
 > 互相覆盖时很难排查。
@@ -249,50 +241,43 @@ server {
 ### 远程部署的登录隧道
 
 上游所有**回调式**登录（CodeArts / LobsterAI / TRAE / Loomy / Raccoon）都硬编码绑
-`127.0.0.1`，端口随机且必须 ≥10000（真实插件的要求）。因此在**远程服务器**上部署时，
-浏览器授权后的回调会打到**你本机**，而不是服务器 —— 服务器上的登录流程会一直等不到回调。
+`127.0.0.1`、端口随机且 ≥10000。所以在**远程服务器**上部署时，浏览器授权后的回调打到
+的是**你本机**、不是服务器 —— 服务器会一直等不到回调。
 
-**可行工作流**（不影响设备码类的渠道）：
+**工作流**：① `/admin` 点「+ 新建账号」，从返回的 `loginUrl` 读出端口（形如
+`...:19283/...`）；② **在本机**建隧道
+`ssh -L 19283:127.0.0.1:19283 user@your-server`；③ 打开那个 `loginUrl` 完成授权。
 
-1. 在 `/admin` 点「+ 新建账号」，把返回的 `loginUrl` 复制出来，读出其中的端口
-   （形如 `...:19283/...`）；
-2. 在**你本机**执行隧道：`ssh -L 19283:127.0.0.1:19283 user@your-server`；
-3. 再打开那个 `loginUrl` 完成授权。
+**无需隧道**的渠道：`qoder` / `qodercn` / `cline`（设备码轮询）、`buddy` / `workbuddy`
+（轮询）、`opencode`（可直接粘贴 `sk-` key）。
 
-**不受影响**的渠道（无需隧道）：`qoder` / `qodercn` / `cline`（设备码轮询）、
-`buddy` / `workbuddy`（轮询）、`opencode`（可直接粘贴 `sk-` key）。
-
-**远程部署的务实替代方案**：在本地机器登录好，然后用 `/admin` 的
-**「备份」导出 → 在服务器上「恢复」导入**，账号与凭据一并搬过去。导入时可选：
+**更省事的替代方案**：在本地登录好，再用 `/admin` 的「备份」导出 → 在服务器「恢复」导入。
+导入有两种模式：
 
 | 模式                 | 行为                                                 | 适用                     |
 | -------------------- | ---------------------------------------------------- | ------------------------ |
 | **整体还原**（默认） | 用备份内容**覆盖**整个账号池与模型黑名单             | 「恢复」按钮、整机迁移   |
 | **单独导入**         | **只追加**账号，已存在的跳过，**不碰**黑名单与锁定表 | 从别人的备份里挑一个账号 |
 
-> ⚠️ **「整体还原」会覆盖现有状态**：若导出的那份备份里没有 OpenCode 的匿名通道条目，
-> 导入后它会消失、`/v1/models` 随之变空（模型数 0）。**重启一次即可恢复**（插件启动时
-> 会自动补一条匿名通道）。只想加账号、不想动本机现有配置时，请选**「单独导入」**。
+> ⚠️ **「整体还原」会覆盖现有状态**：若备份里没有 OpenCode 匿名通道条目，导入后它会消失、
+> `/v1/models` 随之变空。**重启一次即可恢复**（插件启动时会自动补一条）。只想加账号、
+> 不想动现有配置时请选**「单独导入」**。
 
 ### 图片输入
 
-**已支持**。要点：
+**已支持**，要点：
 
-- 只接受 **base64 内联的 `data:` URL**。外部 http(s) 图片链接会被**明确拒绝**，
-  错误码 `unsupported_content`（理由见下）。
-- 媒体类型按**字节硬校验**：声明 `image/jpeg` 但内容是 png 会被拒
-  （`Declared image type does not match its bytes`），不会把坏图发给上游。
-- 图片落 `<CODEARTS2API_HOME>/attachments/`，**内容寻址**（文件名 = 图片的 sha256），
-  同一张图重复发只存一份。
-- 限制沿用官方默认：单张 ≤ 20MB、单条消息 ≤ 20 张 / 200MB、边长 ≤ 8192，
-  支持 `png` / `jpeg` / `webp` / `gif`。
+- 只接受 **base64 内联的 `data:` URL**；外部 http(s) 链接**明确拒绝**（防 SSRF，理由见下）。
+- 媒体类型按**字节硬校验**：声明 `image/jpeg` 而内容是 png 会被拒，不把坏图发给上游。
+- 图片落 `<CODEARTS2API_HOME>/attachments/`，**内容寻址**（文件名 = sha256），重复发只存一份。
+- 沿用官方限制：单张 ≤ 20MB、单条消息 ≤ 20 张 / 200MB、边长 ≤ 8192，支持
+  `png` / `jpeg` / `webp` / `gif`。
 
-客户端要发图，**必须选声明了图片能力的模型**（`GET /v1/models` 的 `input` 字段含
-`image`，例如 `opencode/mimo-v2.6-flash-free`）。用不支持图片的模型发图，上游会拒 ——
-这与网关无关。
+发图**必须选声明了图片能力的模型**（`GET /v1/models` 的 `input` 含 `image`，例如
+`opencode/mimo-v2.6-flash-free`）；用不支持的模型发图会被上游拒，与网关无关。
 
 ```bash
-# 用 data URL 发图（B64 是图片的 base64；注意 data:image/png 要与真实字节一致）
+# B64 是图片的 base64；data:image/png 要与真实字节一致
 curl -H "Authorization: Bearer $KEY" -H 'content-type: application/json' \
   -d "{\"model\":\"opencode/mimo-v2.6-flash-free\",\"messages\":[{\"role\":\"user\",
        \"content\":[{\"type\":\"text\",\"text\":\"这是什么颜色？\"},
@@ -300,23 +285,19 @@ curl -H "Authorization: Bearer $KEY" -H 'content-type: application/json' \
   http://127.0.0.1:8326/v1/chat/completions
 ```
 
-图片两端都要附件服务：
+图片两端都要附件服务：**入站**由网关把 data URL 落成附件（`saveImage`），**出站**由各
+provider 适配器把字节内联进上游请求（`readImage` / `readImageRequest`）。
 
-| 方向     | 谁调                                       | 方法                                                             |
-| -------- | ------------------------------------------ | ---------------------------------------------------------------- |
-| **入站** | 网关把客户端 data URL 落成附件             | `attachments.saveImage({data, mediaType})`                       |
-| **出站** | 各 provider 适配器把附件字节内联进上游请求 | `attachments.readImage(ref)`（另有 `readImageRequest` 取缩放版） |
-
-> ⚠️ 插件是用 `ctx.get('attachments')` 取这个服务的（**不是** `inject`），所以服务缺失时
-> **不报错**、只在真收到图片时才暴露。因此它必须在 `ctx.plugin(plugin)` **之前**装载 ——
-> 这也是本项目直接复用官方 `@deepseek-ai/dsh-attachment-local` 的原因（自实现要重担
-> 格式、权限、原子写、mime 校验、缩放等一堆细节）。
+> ⚠️ 插件用 `ctx.get('attachments')` 取它（**不是** `inject`），服务缺失时不报错、只在
+> 真收到图片时才暴露 —— 所以必须在 `ctx.plugin(plugin)` **之前**装载。这也是本项目直接
+> 复用官方 `@deepseek-ai/dsh-attachment-local` 的原因（自实现要重担格式、权限、原子写、
+> mime 校验、缩放等细节）。
 
 <details>
-<summary><b>设计说明：为什么暂不支持外部 <code>image_url</code></b></summary>
+<summary><b>为什么不支持外部 <code>image_url</code>（设计说明）</b></summary>
 
-**现状：拒绝**（错误码 `unsupported_content`）。这是**上游硬编码**的行为，本仓库无法通过
-配置打开 —— 见 `deepseek-harness-codearts/src/openai-gateway/images.ts`：
+**现状：拒绝**（`unsupported_content`）。这是**上游硬编码**的行为，本仓库无法通过配置
+打开 —— 见 `deepseek-harness-codearts/src/openai-gateway/images.ts`：
 
 ```ts
 if (typeof url === "string" && !url.trim().startsWith("data:")) {
@@ -326,31 +307,26 @@ if (typeof url === "string" && !url.trim().startsWith("data:")) {
 
 **为什么先不改（2026-10-03 的决定）**
 
-- 大多数客户端（Cline / Cherry Studio 等）拖图进对话框时**本来就转 base64**，
-  URL 形态并不常见 —— 先观察实际会不会碰到。
-- 上游的拒绝理由在「网关可能被共享」时是成立的：让网关去下载外部 URL 是一个真实的
-  **SSRF** 面（能打环回、内网服务、云元数据端点 `169.254.169.254`），而且**响应内容会被
-  模型看到**，等于把内网接口的返回泄露给模型 / 日志。
-- 本项目是**自用网关**，风险确实比上游设想的小；但风险大小取决于**部署形态**
-  （是否被反代到公网、同机是否跑着别的内部服务），而不是「自用」这个词本身。
+- 大多数客户端拖图进对话框时**本来就转 base64**，URL 形态并不常见 —— 先观察。
+- 让网关去下载外部 URL 是一个真实的 **SSRF** 面（能打环回、内网服务、云元数据端点
+  `169.254.169.254`），且**响应内容会被模型看到** —— 等于把内网返回泄露给模型 / 日志。
+- 本项目是**自用网关**，风险比上游设想的小；但风险取决于**部署形态**（是否被反代到公网、
+  同机是否跑着别的内部服务），而不是「自用」这个词本身。
 
-**将来若要支持，建议做法（方案 B）**
+**将来若要支持（方案 B）**：在本仓库的 `/v1/*` 反代层拦一道
+（`src/server.js` 的 `proxyToGateway`）—— 检测 http(s) `image_url` → 下载 → 转 base64
+data URL → 重写请求体再转发，**不改上游**。必须带的防护：
 
-在本仓库的 `/v1/*` 反代层拦一道（`src/server.js` 的 `proxyToGateway`）：检测请求体里的
-http(s) `image_url` → 下载 → 转 base64 data URL → 重写请求体再转发给插件网关。
-**不要**改上游。必须带的防护（缺一不可）：
+| 防护                                                                                  | 原因                    |
+| ------------------------------------------------------------------------------------- | ----------------------- |
+| 只允许 `https`                                                                        | 明文传输 + 降级攻击     |
+| 解析 DNS 后拒绝私有 / 保留地址（`10.` / `192.168.` / `127.` / `169.254.` / `::1` 等） | SSRF 的核心防线         |
+| 每次重定向都重新校验                                                                  | 否则一个 302 就绕到内网 |
+| 超时 + 大小上限（≤20MB，与附件一致）                                                  | 防止挂死与内存打爆      |
+| 环境变量开关（默认**关**）+ 文档写明风险                                              | SSRF 风险属运维决策     |
 
-| 防护                                                                                                | 原因                                |
-| --------------------------------------------------------------------------------------------------- | ----------------------------------- |
-| 只允许 `https`                                                                                      | 明文传输 + 降级攻击                 |
-| 解析 DNS 后**拒绝私有/保留地址**（`10.` / `172.16.` / `192.168.` / `127.` / `169.254.` / `::1` 等） | SSRF 的核心防线                     |
-| **每次重定向都重新校验**                                                                            | 否则一个 302 就能绕到内网           |
-| 超时 + 大小上限（≤20MB，与附件上限一致）                                                            | 防止挂死与内存打爆                  |
-| 环境变量开关（默认**关**）+ 文档写明风险                                                            | SSRF 风险随部署形态变化，属运维决策 |
-
-环境变量建议：`ALLOW_IMAGE_URL=1`（默认关）—— 打开后 `/healthz` 应回显该状态，让人一眼
-看出「这台机器允许外部图片 URL」，避免忘记自己开过。另可加 `ALLOW_IMAGE_URL_HOSTS=`
-（逗号分隔白名单）只放行受信任图床，比全局放开更稳妥。
+环境变量建议：`ALLOW_IMAGE_URL=1`（默认关，打开后 `/healthz` 回显该状态），
+另可加 `ALLOW_IMAGE_URL_HOSTS=` 只放行受信任图床。
 
 </details>
 
@@ -371,45 +347,42 @@ git 依赖引入。
 
 ### 宿主依赖面
 
-上游插件的入口是 `apply(ctx)`，宿主依赖面只有这五个服务。本项目把它们就位后即可直接
-`ctx.plugin()` 装载它：
+上游插件的入口是 `apply(ctx)`，宿主依赖面只有这五个服务 —— 把它们就位后即可直接
+`ctx.plugin()` 装载：
 
-| 服务          | 本项目怎么做                                      | 为什么                                                                                                   |
-| ------------- | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `credentials` | **复用官方** `@deepseek-ai/dsh-credentials-local` | 写 `<home>/.credentials.yaml`；自己实现会重担格式/权限/原子写/锁，任何一处偏差都表现为**静默读不到凭据** |
-| `attachments` | **复用官方** `@deepseek-ai/dsh-attachment-local`  | 图片输入的地基（入站落盘 + 出站内联）。插件用 `ctx.get` 取它，**缺了不报错**、只静默失去图片能力         |
-| `commands`    | 空对象                                            | 插件把它列在 `inject` 里但代码零调用；缺了会永久 pending                                                 |
-| `connection`  | 自实现注册表（`src/connection.js`）               | Jet Hub 管理端点经此接入，请求原样透传                                                                   |
-| `llm`         | **真实** `@deepseek-ai/dsh-llm` 的 `LlmRuntime`   | 网关与各渠道适配器都通过它发请求，不能替身                                                               |
+| 服务          | 本项目怎么做                                      | 为什么                                                                                             |
+| ------------- | ------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `credentials` | **复用官方** `@deepseek-ai/dsh-credentials-local` | 写 `<home>/.credentials.yaml`；自实现要重担格式 / 权限 / 原子写 / 锁，偏差表现为**静默读不到凭据** |
+| `attachments` | **复用官方** `@deepseek-ai/dsh-attachment-local`  | 图片输入的地基（入站落盘 + 出站内联）。插件用 `ctx.get` 取它，**缺了不报错**、只静默失去图片能力   |
+| `commands`    | 空对象                                            | 插件把它列在 `inject` 里但代码零调用；缺了会永久 pending                                           |
+| `connection`  | 自实现注册表（`src/connection.js`）               | Jet Hub 管理端点经此接入，请求原样透传                                                             |
+| `llm`         | **真实** `@deepseek-ai/dsh-llm` 的 `LlmRuntime`   | 网关与各渠道适配器都通过它发请求，不能替身                                                         |
 
 > ⚠️ 凭据服务**必须走 `ctx.plugin()`**，不能 `new LocalCredentialProvider(...)`：载入既有
-> 凭据的逻辑在它的 `[Service.init]` 生成器里，只有被 cordis 作为插件装载时才会执行。
-> 手动 `new` 出来的实例**不会读磁盘上的既有凭据**，且不报任何错 —— 症状同样是
-> 「凭据未配置」（已实测）。
+> 凭据的逻辑在它的 `[Service.init]` 生成器里，只有被 cordis 当作插件装载时才会执行 ——
+> 手动 `new` 的实例**不会读磁盘上的既有凭据**且不报错（症状同样是「凭据未配置」）。
 
-管理界面同理：上游的浏览器产物（`dsh-codearts-auth/client`）只 external 了 `react`，
-本项目用**两个 script 标签 + 一个桩 ctx** 把它的 `JetHubPage` 组件捞出来直接渲染
-（见 `web/admin.jsx`）。因此**界面随上游走**，本仓库不含任何布局代码，上游改版后重新
-`npm run build` 即可。
+管理界面同理：上游的浏览器产物只 external 了 `react`，本项目用**两个 script 标签 + 一个
+桩 ctx** 把它的 `JetHubPage` 捞出来渲染（见 `web/admin.jsx`）。因此**界面随上游走**，
+本仓库不含任何布局代码，上游改版后重新 `npm run build` 即可。
 
 ### 依赖划分
 
-一个常见疑问：**界面要用 react，为什么它不算运行期依赖？**
+**界面要用 react，为什么它不算运行期依赖？**
 
-因为 `/admin` 用的是**构建期打包**：`npm run build` 时 esbuild 把 react / react-dom 与
-页面代码**一起打进 `public/admin.js`**（约 1.2MB，自带 React 运行时、无任何外部
-`require`）。运行期（`node src/index.js`）**不加载 react**，只是把这份静态文件发给浏览器。
-据此划分：
+因为 `/admin` 是**构建期打包**：`npm run build` 用 esbuild 把 react / react-dom 与页面
+代码一起打进 `public/admin.js`（自带 React 运行时、无外部 `require`）。运行期
+（`node src/index.js`）**不加载 react**，只是把这份静态文件发给浏览器。
 
-| 包                                                                                                | 分类              | 谁在用                                            |
-| ------------------------------------------------------------------------------------------------- | ----------------- | ------------------------------------------------- |
-| `@deepseek-ai/cordis`、`dsh-llm`、`dsh-credentials`、`dsh-credentials-local`、`dsh-codearts-auth` | `dependencies`    | **服务器进程运行期**真正 `import`                 |
-| `esbuild`                                                                                         | `devDependencies` | 只在 `npm run build` 时运行                       |
-| `react`、`react-dom`                                                                              | `devDependencies` | 只在构建期作为**输入**被 esbuild 读取；产物已内联 |
-| `jsdom`                                                                                           | `devDependencies` | 只在 `npm test` 里模拟浏览器 DOM                  |
+| 包                                                                                                | 分类              | 谁在用                               |
+| ------------------------------------------------------------------------------------------------- | ----------------- | ------------------------------------ |
+| `@deepseek-ai/cordis`、`dsh-llm`、`dsh-credentials`、`dsh-credentials-local`、`dsh-codearts-auth` | `dependencies`    | **服务器进程运行期**真正 `import`    |
+| `esbuild`                                                                                         | `devDependencies` | 只在 `npm run build` 时运行          |
+| `react`、`react-dom`                                                                              | `devDependencies` | 只在构建期作为输入被读取；产物已内联 |
+| `jsdom`                                                                                           | `devDependencies` | 只在 `npm test` 里模拟浏览器 DOM     |
 
-> ⚠️ 唯一的坑：`npm run build` **需要** devDependencies。若构建环境里设了
-> `NODE_ENV=production`，`npm install` 会默认跳过它们，构建直接失败。故 Dockerfile 里
+> ⚠️ 唯一的坑：`npm run build` **需要** devDependencies。若构建环境设了
+> `NODE_ENV=production`，`npm install` 会默认跳过它们、构建直接失败 —— 故 Dockerfile 里
 > 显式写了 `npm install --include=dev`。
 
 ## 开发
@@ -426,18 +399,17 @@ npm run format        # Prettier 写入
 npm run format:check  # Prettier 只检查（CI 用）
 ```
 
-代码风格为 `semi: false` / `printWidth: 120`（flat config）。几处项目特有的约定：
+代码风格为 `semi: false` / `printWidth: 120`（flat config）。项目特有的几点：
 
-- **`eslint.config.js` 排除编译产物**：`public/admin.js`、`public/upstream-jet-hub.js`
-  是构建时从上游拷贝 / 打包出来的（约 1.6MB），既不是本仓库代码，也会让 lint 从秒级
-  变成分钟级。
-- **Node 与浏览器端分别配置 globals**：`src/`、`tests/` 用 `globals.node`；
-  `web/admin.jsx` 用 `globals.browser`（它用到 `document` / `fetch`）。
+- **`eslint.config.js` / `.prettierignore` 排除两个编译产物**（`public/admin.js`、
+  `public/upstream-jet-hub.js`）：它们不是本仓库代码，不排除会让 lint 从秒级变成分钟级，
+  并让 `npm run format` 把上游代码重排一遍。
 - **`.jsx` 显式列进 `files`**：flat config 默认只匹配 `*.js`，不写的话 `web/admin.jsx`
   会被**静默跳过**（不报错也不检查）。
-- **`.prettierignore`** 同样排除那两个产物（`npm run format` 会写文件，不排除就会把上游
-  代码重排一遍，既无意义、又可能改变产物）。`public/admin.html` **不**排除 —— 它是手写
-  源码（已实测：格式化后 `<script>` 的加载顺序不变，`/admin` 仍正常渲染）。
+- **Node 与浏览器端分别配置 globals**：`src/`、`tests/` 用 `globals.node`；
+  `web/admin.jsx` 用 `globals.browser`。
+- **`public/admin.html` 不排除** —— 它是手写源码（已实测：格式化后 `<script>` 的加载
+  顺序不变，`/admin` 仍正常渲染）。
 
 > ⚠️ 两个产物由 `npm run build` 生成，被 `.gitignore` 与 `.prettierignore` 双重排除。
 > **不要**提交或格式化它们。
@@ -472,129 +444,27 @@ Dockerfile         容器构建
 CHANGELOG.md       变更记录（新的在最前面）
 ```
 
-## 升级上游
+## 变更记录与升级
 
-依赖锁在某个 commit 上。下面是**实测验证过**的完整流程（含一个必须避开的坑）。
+历次变更记在 [`CHANGELOG.md`](CHANGELOG.md)（**新的在最前面**）—— 上游每个版本改了什么、
+本仓库验证结果、以及踩到的坑。本节说明它的组织方式、与上游的耦合面，以及升级流程。
 
-### 第 1 步：查上游最新 commit
+「上游升级」条目记录的是 [`deepseek-harness-codearts`](https://gitee.com/iJetLi/deepseek-harness-codearts)
+依赖的更新。本项目的核心特色是**薄胶水** —— 上游改业务逻辑时我们通常 **0 行代码改动**，
+这些条目就是历次验证。
 
-上游仓库：<https://gitee.com/iJetLi/deepseek-harness-codearts>
+### CHANGELOG 怎么写
 
-```bash
-git ls-remote https://gitee.com/iJetLi/deepseek-harness-codearts.git refs/heads/master
-# 输出形如：6fc1f61523df915166dae20922d05689ae7eccba  refs/heads/master
-#            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ 这就是要用的 commit
-```
+- 每条写成 `<details>` + `<summary><b>日期 · 标题</b></summary>`，正文跟在后面 ——
+  **标题本身就是折叠栏**，不再另加「展开/收起」文案。
+- **最新一条**用 `<details open>`（默认展开，但一样能手动收起）；更早的条目用
+  `<details>`。两者形式完全一致，只是初始状态不同。
+- **同一天的多次变更合并成一条**，内部用 `###` 分小节，避免同日期条目散成好几段。
+- ⚠️ `<summary>` 是 HTML 上下文，**行内代码要用 `<code>x</code>`**（反引号在那里不会被
+  渲染）；正文里照常使用反引号。
+- 新增条目时：把**上一条**的 `open` 去掉，新条目加在文件顶部并带 `open`。
 
-如果你本地有 clone，也可以：
-
-```bash
-cd /path/to/deepseek-harness-codearts
-git fetch origin && git log --oneline -5 origin/master          # 看新提交
-git log --oneline <当前锁的commit>..origin/master               # 看这次更新了什么
-git diff --stat <当前锁的commit>..origin/master -- src/ | tail  # 看改了哪些文件
-```
-
-### 第 2 步：更新依赖
-
-⚠️ **这步有坑，别只改 package.json。**
-
-```bash
-NEW=<第 1 步拿到的 commit>
-
-npm install "dsh-codearts-auth@git+https://gitee.com/iJetLi/deepseek-harness-codearts.git#$NEW" \
-  --include=dev --no-audit --no-fund
-```
-
-> ⚠️ **必须用上面的写法（带包名与 `@` spec），不能只改 `package.json` 再 `npm install`。**
-> 实测过：`package-lock.json` 里记着旧 commit 的 `resolved`，只改 `package.json` 的话普通
-> `npm install` 会**静默沿用 lock 里的旧 commit**（输出只说 `added 1 package`，不报错），
-> 你以为升级了其实没有。上面的写法会让 npm 同时更新 `package.json` 与 `package-lock.json`。
->
-> 若已经踩坑，两个文件都改成新 commit 后
-> `rm -rf node_modules/dsh-codearts-auth && npm install`。升级后务必核对一次：
->
-> ```bash
-> node -e "console.log(require('./package-lock.json').packages['node_modules/dsh-codearts-auth'].resolved)"
-> # 末尾应是新 commit
-> ```
-
-`npm install` 会重新 clone 上游并跑它的 `prepare`（`pnpm build:all`）现场编译 `lib/`
-—— 所以**要确保 pnpm 可用**（`corepack enable`）。
-
-### 第 3 步：重建前端产物（必做）
-
-界面的 JS 是**上游产物的拷贝**，不重建就还是旧界面：
-
-```bash
-npm run build
-```
-
-### 第 4 步：测试与规范
-
-```bash
-npm test              # 行为测试
-npm run lint          # 上游若改了产物形态，这里能发现我们的代码跟不上了
-npm run format:check  # 确认代码风格一致
-```
-
-按失败信息分两种处理：
-
-| 失败的是                                               | 说明                     | 怎么办                                                                                 |
-| ------------------------------------------------------ | ------------------------ | -------------------------------------------------------------------------------------- |
-| `host.test.mjs` 的「provider 列表与期望不一致」        | 上游**增删了渠道**       | 按报错里给出的实际列表，更新 `tests/host.test.mjs` 的 `EXPECTED_PROVIDERS`（只改测试） |
-| `admin-ui.test.mjs` 的「只请求我们 shim 能提供的模块」 | 上游引入**新的外部依赖** | 在 `web/admin.jsx` 的 `captured.factory()` 里补上该模块（或改用别的接入方式）          |
-| `home-isolation.test.mjs`                              | 存储格式/隔离被改坏了    | 看具体断言，通常与 `src/home.js` 或凭据服务有关                                        |
-| 其它                                                   | 契约漂移                 | 对照 `src/upstream.js` 顶部契约表                                                      |
-
-### 第 5 步：启动确认契约（关键一步）
-
-```bash
-npm start
-```
-
-启动日志里必须有这一行：
-
-```
-[codearts2api] 上游契约核对通过：/api/jet-hub, /api/jet-hub/captcha-carrier
-```
-
-**没有这行、或直接抛错**，就说明上游改了端点路径或装配方式 —— 错误信息会告诉你去
-`src/upstream.js` 改哪个常量：
-
-```
-上游插件未注册预期的管理端点 /api/jet-hub（实际注册：…）。
-这通常意味着上游改了端点路径或装配方式 —— 请对照 src/upstream.js 顶部的契约表…
-```
-
-### 第 6 步：真机点一下（建议）
-
-```bash
-# 打开 http://127.0.0.1:8080/admin
-# 1. 左侧导航完整（14 个渠道 + aggregate 聚合设置面板；另有 jet-hub-auto 路由）
-# 2. 账号列表能读出 source（不是「凭据未配置」）
-# 3. 点页头「网关」→ 开关能开关、能复制 Key
-```
-
-### 万一升级后出问题：回滚
-
-```bash
-npm install "dsh-codearts-auth@git+https://gitee.com/iJetLi/deepseek-harness-codearts.git#<旧commit>" --include=dev
-npm run build && npm test
-```
-
-> 💡 升级只会改 `package.json` / `package-lock.json` / `public/*.js`（产物）。
-> **你的账号数据在 `~/.codearts2api`，与升级无关**。升级前想稳妥可以在 `/admin` 里
-> 「备份」导出一份。
-
-历次升级的详细结果（改了哪些文件、测试与真机验证、踩到的坑）记在
-[`CHANGELOG.md`](CHANGELOG.md)。查当前锁定版本：
-
-```bash
-node -e "console.log(require('./package.json').dependencies['dsh-codearts-auth'])"
-```
-
-## 升级时需要改多少代码
+### 升级时需要改多少代码
 
 我们与上游的**代码**耦合只有一处：
 
@@ -617,3 +487,90 @@ import * as plugin from "dsh-codearts-auth" // src/host.js 唯一的一行
 | **改客户端 loader 形态**          | 可能 1~2 处                      | `public/admin.html` + `web/admin.jsx`                     |
 | **改 slot 名 `settings.section`** | 1 个常量                         | `src/upstream.js`                                         |
 | **改插件 `inject` 列表**          | `src/host.js` 的 provide         | 少了服务插件会永久 pending                                |
+
+### 升级流程
+
+**1. 查上游最新 commit**
+
+```bash
+git ls-remote https://gitee.com/iJetLi/deepseek-harness-codearts.git refs/heads/master
+# 输出形如：6fc1f61523df915166dae20922d05689ae7eccba  refs/heads/master
+```
+
+本地有 clone 的话，也可以 `git fetch origin` 后
+`git log --oneline <当前锁的commit>..origin/master` 看这次改了什么。
+
+**2. 更新依赖（⚠️ 别只改 package.json）**
+
+```bash
+NEW=<第 1 步拿到的 commit>
+npm install "dsh-codearts-auth@git+https://gitee.com/iJetLi/deepseek-harness-codearts.git#$NEW" \
+  --include=dev --no-audit --no-fund
+```
+
+> ⚠️ **必须用上面的写法（带包名与 `@` spec）。** 实测过：`package-lock.json` 里记着旧
+> commit 的 `resolved`，只改 `package.json` 再 `npm install` 会**静默沿用 lock 里的旧
+> commit**（只输出 `added 1 package`、不报错），你以为升级了其实没有。
+>
+> 已踩坑的话，两个文件都改成新 commit 后 `rm -rf node_modules/dsh-codearts-auth && npm install`。
+> 升级后务必核对：`node -e "console.log(require('./package-lock.json').packages['node_modules/dsh-codearts-auth'].resolved)"`
+
+`npm install` 会重新 clone 上游并跑它的 `prepare`（`pnpm build:all`）现场编译 `lib/` ——
+所以要**确保 pnpm 可用**（`corepack enable`）。
+
+**3. 重建前端产物（必做）** —— 界面的 JS 是上游产物的拷贝，不重建就还是旧界面：
+
+```bash
+npm run build
+```
+
+**4. 测试与规范**
+
+```bash
+npm test              # 行为测试
+npm run lint          # 上游若改了产物形态，这里能发现我们的代码跟不上了
+npm run format:check  # 确认代码风格一致
+```
+
+按失败信息处理：
+
+| 失败的是                                               | 说明                     | 怎么办                                                    |
+| ------------------------------------------------------ | ------------------------ | --------------------------------------------------------- |
+| `host.test.mjs` 的「provider 列表与期望不一致」        | 上游**增删了渠道**       | 按报错给出的实际列表更新 `EXPECTED_PROVIDERS`（只改测试） |
+| `admin-ui.test.mjs` 的「只请求我们 shim 能提供的模块」 | 上游引入**新的外部依赖** | 在 `web/admin.jsx` 的 `captured.factory()` 里补上该模块   |
+| `home-isolation.test.mjs`                              | 存储格式/隔离被改坏      | 看具体断言，通常与 `src/home.js` 或凭据服务有关           |
+| 其它                                                   | 契约漂移                 | 对照 `src/upstream.js` 顶部契约表                         |
+
+**5. 启动确认契约（关键一步）**
+
+```bash
+npm start
+```
+
+启动日志里必须有这一行：
+
+```
+[codearts2api] 上游契约核对通过：/api/jet-hub, /api/jet-hub/captcha-carrier
+```
+
+**没有这行、或直接抛错**，就说明上游改了端点路径或装配方式 —— 错误信息会告诉你去
+`src/upstream.js` 改哪个常量。
+
+**6. 真机点一下（建议）** —— 打开 `/admin`，确认：左侧导航完整（14 个渠道 + 聚合面板）、
+账号列表能读出 source、页头「网关」开关能开关。
+
+**回滚**
+
+```bash
+npm install "dsh-codearts-auth@git+https://gitee.com/iJetLi/deepseek-harness-codearts.git#<旧commit>" --include=dev
+npm run build && npm test
+```
+
+> 💡 升级只改 `package.json` / `package-lock.json` / `public/*.js`（产物）。
+> **账号数据在 `~/.codearts2api`，与升级无关**。想稳妥可以升级前在 `/admin` 里导出一份备份。
+
+查当前锁定版本：
+
+```bash
+node -e "console.log(require('./package.json').dependencies['dsh-codearts-auth'])"
+```
