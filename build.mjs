@@ -36,6 +36,30 @@ copyFileSync(upstreamBundle, join(publicDirectory, "upstream-jet-hub.js"))
 console.log(`[build] 已拷贝上游客户端产物 → public/upstream-jet-hub.js`)
 
 // ── ② 打包本项目的薄入口 ──
+//
+// 产物**一律按生产模式**构建（原先是按 `NODE_ENV` 切换，2026-10-12 改掉）：
+//
+// 1. **不存在需要开发版的场景**。这个 IIFE 只服务 `/admin` 这一个页面，不是被
+//    `import` 的库、也没有「本地调试看 React 告警」的需求。按环境变量切换只会
+//    让「开发机跑出来的产物」与「镜像里的产物」不是一个东西 —— 而 Dockerfile
+//    跑的正是默认档 `npm run build`，于是**线上拿到的反而是开发版**。
+//
+// 2. **此前是个真实缺陷**：React 的入口用 `process.env.NODE_ENV` 分支选择
+//    「开发版 / 生产版」实现，而 **esbuild 的 `build()` 不会自己替换它**
+//    （只有 `minify: true` 时 esbuild 才顺带定义成 "production"）。在没有
+//    `define` 的默认档下，打进来的是 **React 开发版**：
+//
+//    | 配置 | 产物 |
+//    | --- | --- |
+//    | 开发版 React、不压缩（旧默认） | **1199.6 KB** |
+//    | 生产版 React、不压缩 | 686.9 KB |
+//    | 生产版 React、压缩（现在） | **217.8 KB** |
+//
+//    除体积外，开发版还会往浏览器控制台打一堆 warning。
+//
+// 3. `define` 与 `minify` 必须**同时**写死为生产：只压缩而不 define，会得到
+//    「压缩过的开发版」（217.8 KB 但仍是开发实现）；只 define 而不压缩，则白
+//    留 470 KB。
 await build({
   entryPoints: [join(root, "web", "admin.jsx")],
   bundle: true,
@@ -43,11 +67,12 @@ await build({
   platform: "browser",
   target: ["chrome100"],
   // utf8 而非默认的 ascii：上游 bundle 与我们的文案都是中文，转义成 \uXXXX
-  // 会让产物体积翻倍、且无法用文本搜索核对。
+  // 会让产物体积翻倍（与上面第 2 点无关，是另一件事）。
   charset: "utf8",
   outfile: join(publicDirectory, "admin.js"),
-  // 生产环境下压缩；默认保留可读性，便于「界面上看到什么、产物里就搜得到什么」。
-  minify: process.env.NODE_ENV === "production",
+  // 让 React 选生产版实现，而不是靠 minify 的副作用（见上）。
+  define: { "process.env.NODE_ENV": '"production"' },
+  minify: true,
   legalComments: "none",
   logLevel: "info",
 })

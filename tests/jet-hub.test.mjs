@@ -223,15 +223,31 @@ test("供应商级开关：一键关闭与打开", async (t) => {
   assert.equal(status.ok, true)
   assert.ok(status.value.statuses.codearts.models.total > 0)
 
+  // ⚠️ 「关闭供应商」在**目录不完整**时必须**拒绝**，而不是写一份兜底子集黑名单。
+  //
+  // 这是上游 2026-10-11 的**有意修复**（Issue IKJW33）：旧版在远端目录读不到时
+  // 仍会拿「适配器目录 ∪ 兜底快照」写黑名单，于是 `provider.status` 显示
+  // `closed: true`，但**目录外的模型依旧可选** —— 用户看到「已关闭」却还能用。
+  // 新版判据是 `catalog.complete`（**远端真的读到且非空**），不满足即回
+  // `bad-request` 且**不落盘、不广播**。
+  //
+  // 本例没有真实账号，故远端目录必然读不到 —— 这正是**验证该拒绝行为**的场景。
   const closed = await rpc(app.origin, "provider.setEnabled", { provider: "codearts", enabled: false })
-  assert.equal(closed.ok, true, `关闭供应商应成功：${JSON.stringify(closed)}`)
-  assert.ok(closed.value.models > 0, "应报告关闭了多少个模型")
+  assert.equal(closed.ok, false, `目录不完整时不应「关闭成功」：${JSON.stringify(closed)}`)
+  assert.equal(closed.error.code, "bad-request")
+  assert.match(closed.error.message, /没有可关闭的模型/, "应给出可读原因而不是静默空操作")
 
-  const afterClose = await rpc(app.origin, "provider.status", { providers: ["codearts"] })
-  assert.equal(afterClose.value.statuses.codearts.closed, true, "应显示为整体关闭")
+  // ⚠️ 关键断言：**拒绝必须是「什么都没做」**，不能留下半个关闭状态。
+  const afterReject = await rpc(app.origin, "provider.status", { providers: ["codearts"] })
+  assert.equal(
+    afterReject.value.statuses.codearts.closed,
+    false,
+    "被拒绝的关闭不得留下「已关闭」状态（否则就是旧版那个矛盾的半开状态）",
+  )
 
+  // 打开方向不受目录完整性限制（只清空黑名单），应始终成功 —— 且幂等。
   const opened = await rpc(app.origin, "provider.setEnabled", { provider: "codearts", enabled: true })
-  assert.equal(opened.ok, true)
+  assert.equal(opened.ok, true, `打开供应商应成功：${JSON.stringify(opened)}`)
   const afterOpen = await rpc(app.origin, "provider.status", { providers: ["codearts"] })
-  assert.equal(afterOpen.value.statuses.codearts.closed, false, "应恢复为打开")
+  assert.equal(afterOpen.value.statuses.codearts.closed, false, "应保持为打开")
 })
