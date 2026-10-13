@@ -10,7 +10,7 @@ import { test } from "node:test"
 import assert from "node:assert/strict"
 import { startTestApp, rpc } from "./helpers.mjs"
 
-/** 期望注册的 provider（14 个渠道 + aggregate / jet-hub-auto 两条聚合路由）。 */
+/** 期望注册的 provider（15 个渠道 + aggregate / jet-hub-auto 两条聚合路由）。 */
 const EXPECTED_PROVIDERS = [
   "codearts",
   "buddy",
@@ -25,6 +25,9 @@ const EXPECTED_PROVIDERS = [
   "minimax",
   "gemini",
   "zcode",
+  // 上游 2026-10-13 新增：电脑果办（OfficeAce）。注意它注册在 zcode 与 opencode
+  // **之间** —— 顺序参与断言，别按字母序或习惯插到末尾。
+  "officeace",
   "opencode",
   // 上游 2026-10-08 升级新增：同一模型跨渠道归一化、按额度临期排序并失败切换。
   "aggregate",
