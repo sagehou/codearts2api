@@ -7,6 +7,57 @@
 ---
 
 <details open>
+<summary><b>2026-10-14 · 上游升级到 <code>b37dbf4</code>（新增 Accio 渠道 + minimax 工具名修复）</b></summary>
+
+上游增量：**11 个提交**（`dab6a7c` → `b37dbf4`，含分支合并共 23 个）、98 个文件、
++17436 / −816 行。版本仍是 `0.2.0-rc.10`。
+
+### 上游变化
+
+- **新增第 16 个渠道：Accio（阿里）** —— 脱离 IDE 的 PKCE 登录 + 免签名推理；
+  并接入聚合轮换（`WIRED_EXPIRY_PROVIDERS`）。
+- **minimax**：`tool-call-delta` 携带 `name`，并补齐空名 `tool_call` 防线。
+- **DSML 归一化**：修标签笔误致「内容凭空消失」（补齐 `invoke` / `parameter` 空白）
+  与四处真缺陷；**OfficeAce** 修「模型选择器看不到模型」（推理 / 探测打错 host，
+  `maasBaseUrl` 是死字段）。
+- 错误处理逐条核实后修 4 处，并补回被审计证伪的净回归与两处零守卫。
+
+### 本仓库改动与验证
+
+| 项           | 结果                                                                                     |
+| ------------ | ---------------------------------------------------------------------------------------- |
+| 依赖锁定     | `package.json` 与 `package-lock.json` 指向 `b37dbf43158a7b9c8428c5a152accf5b1793efdb`    |
+| 契约核对     | 端点路径 / 端点名 / `inject` **均未变**；渠道集合**新增 `accio`**                        |
+| **产品代码** | **0 行**；前端产物由 `npm run build` 重建                                                |
+| 行为测试     | **22/22 通过**；lint 与 `prettier --check . --end-of-line auto` 通过                     |
+| 启动验证     | 契约核对通过；**18 条 provider 路由**（16 渠道 + 2 条聚合路由）；`/admin` 200；65 个模型 |
+| 真机验证     | **已实测**（备用端口 + 副本状态目录）：`/v1/chat/completions` 正常                       |
+
+改动文件：`package.json`、`package-lock.json`、`tests/host.test.mjs`、`tests/admin-ui.test.mjs`。
+
+### 跟随上游更新：渠道列表与界面导航
+
+`accio` 加入，导航由 16 项变 **17 项**。⚠️ 值得记一笔的是**顺序**：本次不仅新增渠道，
+`gemini` 之后的相对顺序也变了：
+
+```
+… minimax, gemini, accio, zcode, officeace, opencode, aggregate, jet-hub-auto
+```
+
+⚠️ 这个顺序**与 `src/provider-registry.ts` 里的声明顺序不同** —— 断言比的是**适配器注册
+顺序**（`index.ts` 里 `registerXxxLlm` 的调用序）。我一开始按注册表文件推断，得出了错误的
+插入位置；改为**让测试报出实际顺序**后再更新，并在 `EXPECTED_PROVIDERS` 旁写明这条，
+免得下次再照注册表抄。
+
+（`officeace` 上一轮的注释说它「在 zcode 与 opencode 之间」，本轮 `accio` 插进来后
+它前面变成了 `zcode`、后面仍是 `opencode` —— 注释已随之更新。）
+
+> 💡 又见「薄胶水」：上游 98 个文件、+17436 行，新增一个完整渠道 ——
+> 本仓库的**产品代码仍是 0 行**，只更新了两处**测试期望**。
+
+</details>
+
+<details>
 <summary><b>2026-10-13 · 上游升级到 <code>dab6a7c</code>（新增 OfficeAce 渠道）</b></summary>
 
 上游增量：**14 个提交**（`d14636e` → `dab6a7c`，含分支合并共 34 个）、98 个文件、
