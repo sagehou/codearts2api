@@ -7,6 +7,29 @@
 ---
 
 <details open>
+<summary><b>2026-10-15 · 上游升级到 <code>023de5f</code>（0.2.0-rc.11）</b></summary>
+
+依赖从 `50023bc3f462c33be5ea37bda76326fc15bc59b6` 更新到
+`023de5fcd66433efbfcb08003d30e8a4db756c77`，同步更新 npm 锁文件。
+
+### 上游变化
+
+- **OpenCode**：适配 V2 协议与客户端工具别名，剔除门禁工具调用，避免整轮报错。
+- **OfficeAce**：修复批量续期、永久积分锁定执行及 401 归因与熔断。
+- **图片与工具调用**：接通 Accio 逐模型图片能力，修复工具结果内层图片丢失、空名工具调用导致的 400。
+- **原生搜索**：新增 buddy / workbuddy / qoder / qodercn 搜索接线与持久化总开关；该接线依赖 DSH 宿主服务，不代表本独立网关新增搜索接口。
+- **包名**：改为 `dsh-providers-hub`，客户端注册 id 同步跟随；本仓库保留 `dsh-codearts-auth` 依赖别名，现有导入与构建无需修改。
+
+### 本仓库验证
+
+- `npm run build` 通过，管理界面产物已重建。
+- `npm test` **22/22 通过**，包含管理界面渲染、插件装配契约、18 条 provider 路由及网关反代验证。
+- `npm run lint` 与 `npm run format:check` 通过，**产品代码 0 行改动**。
+- 测试使用临时状态目录与独立端口，未使用真实账号进行推理验证。
+
+</details>
+
+<details>
 <summary><b>2026-10-14 · 上游两次升级（<code>b37dbf4</code> → <code>50023bc</code>）+ 新增 Accio 渠道</b></summary>
 
 这一天做了两轮上游升级。
