@@ -10,7 +10,7 @@ import { test } from "node:test"
 import assert from "node:assert/strict"
 import { startTestApp, rpc } from "./helpers.mjs"
 
-/** 期望注册的 provider（16 个渠道 + aggregate / jet-hub-auto 两条聚合路由）。 */
+/** 期望注册的 provider（17 个渠道 + aggregate / jet-hub-auto 两条聚合路由）。 */
 const EXPECTED_PROVIDERS = [
   "codearts",
   "buddy",
@@ -23,6 +23,10 @@ const EXPECTED_PROVIDERS = [
   "loomy",
   "raccoon",
   "minimax",
+  // 上游 2026-10-16 新增：MiniMax Code 国际版（`minimaxintl`）。它与国内站**共用
+  // 同一个 `MinimaxAdapter`**，注册时是第二次调用 `registerMinimaxLlm`，因此紧随
+  // `minimax` 之后、在 `gemini` **之前**。
+  "minimaxintl",
   "gemini",
   // 上游 2026-10-14 新增：Accio（阿里）。⚠️ 它紧跟 gemini、在 zcode **之前**。
   "accio",

@@ -25,7 +25,7 @@
     "@deepseek-ai/dsh-credentials": "0.2.0-rc.2",
     "@deepseek-ai/dsh-credentials-local": "0.2.0-rc.2",
     "@deepseek-ai/dsh-llm": "0.2.0-rc.2",
-    "dsh-codearts-auth": "git+https://gitee.com/iJetLi/deepseek-harness-codearts.git#023de5fcd66433efbfcb08003d30e8a4db756c77"
+    "dsh-codearts-auth": "git+https://gitee.com/iJetLi/deepseek-harness-codearts.git#0225f08ae6db4b5b2e8d3df71061c9660dee0ddb"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

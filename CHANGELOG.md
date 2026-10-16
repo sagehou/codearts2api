@@ -7,6 +7,70 @@
 ---
 
 <details open>
+<summary><b>2026-10-16 · 上游升级到 <code>0225f08</code>（新增 MiniMax Code 国际版）</b></summary>
+
+上游增量：**14 个提交**（`023de5f` → `0225f08`，含 4 个合并提交，其中无合并提交 10 个）、
+64 个文件、+4766 / −1343 行。版本仍是 `0.2.0-rc.11`。
+
+### 上游变化
+
+这一轮**只有一条新渠道是功能增量**，其余是渠道加固与文档/断言纠偏。
+
+- **新增第 17 个渠道：MiniMax Code 国际版（`minimaxintl`）**（`63f08f4` + 复审 `0f9022d`，PR103）。
+  它与中国版**共用同一套 `src/minimax*.ts` 实现**，差异全在 `MINIMAX_INTL` 配置
+  （主机 `account.minimax.io` / `agent.minimax.io`、目录 region `en`、凭据 ref 前缀
+  `MINIMAXINTL_`；product 只差 6 个字段）。两站**账号不互通、API 主机不同**，故是两个
+  provider 而非一个 provider 加站点参数。同批还加了 **minimax 传输级重试** —— 真机报到
+  `fetch failed`，根因是 `self-signed certificate in certificate chain`（同一凭据连打 10 次
+  签到端点只成功 5 次）。复审补了 5 处零守卫并修 6 处文档失实。
+- **buddy / workbuddy `X-Conversation-*` 三头**（`b554b73` → `5fa1195`，PR104）：先按
+  「修 workbuddy 全线 400 / 11128」补三头，**真机约 90 次请求复测又把核心结论证伪**
+  （剥三头 15/15 成功，与带三头完全一致），最终以「三头非准入必要」的整改结论落地，
+  并补 `buddy-growth` 与逐 provider 点名用例。
+- **loomy 额度冷却终点改为 UTC+8 当日 24:00**（`2945203`，IKL80H）：原先记的是
+  「撞墙时刻 + 24h」滑动窗口，23:50 烧光额度会把解禁时刻落到**次日 23:50** —— 跨过 0 点
+  上游已经放行，插件仍报「可用账号均在限流中」并把同一时刻显示在面板上。
+- **OfficeAce 上下文窗口**（`83ced0d`，IKM3A0）：初版这一列**没有任何实测依据**（GLM 三行与
+  CodeArts 表逐字相同、`deepseek-v4.1-flash` 查无出处），真机取证后逐项改正 —— 实测上限
+  `1_048_576`，初版小 **5.3 倍**，症状不是报错而是**静默降级**（0.8× 阈值提前压缩，
+  1M 能力永远吃不到）。
+- **聚合「两个 Auto」澄清与名单守卫**（`1f47685` + `76e1e03`，PR101）：轮换名单七家 → 九家
+  （补 accio / officeace），点明真正决定候选表可见性的是 `WIRED_EXPIRY_PROVIDERS` 而非
+  `AGGREGATE_CHANNELS`（只加后者是静默失效，该陷阱已复发三次）；新增「模型选择器里为什么
+  有两个 Auto」一节；复审再修正 4 处失实断言、补齐 5 处过期名单并加名单守卫。
+- ⚠️ **`reasoning_effort` 的结论被上游翻盘**：10-14 那条记的「workbuddy 一律不发」已被
+  **撤回**（`e261cd6`）—— 真机复测证明它是该渠道的**思考开关**（`1361706`），不发等于
+  把思考关掉。
+
+### 本仓库改动与验证
+
+| 项           | 结果                                                                                                                 |
+| ------------ | -------------------------------------------------------------------------------------------------------------------- |
+| 依赖锁定     | `package.json` 与 `package-lock.json` 从 `023de5f` 更新到 `0225f08ae6db4b5b2e8d3df71061c9660dee0ddb`，同步更新锁文件 |
+| 契约核对     | 端点路径 / 端点名 / `inject` **均未变**；渠道集合**新增 `minimaxintl`**                                              |
+| **产品代码** | **0 行**；前端产物由 `npm run build` 重建                                                                            |
+| 行为测试     | **22/22 通过**；lint 与 `prettier --check . --end-of-line auto` 通过                                                 |
+| 启动验证     | 契约核对通过；**19 条 provider 路由**（17 渠道 + 2 条聚合路由）；`/admin` 200；`/healthz` 正常                       |
+| 真机验证     | 未做（本轮无新增账号需求）；沿用上一轮结论                                                                           |
+
+改动文件：`package.json`、`package-lock.json`、`tests/host.test.mjs`、
+`tests/admin-ui.test.mjs`、`README.md`、`CHANGELOG.md`。
+
+### 跟随上游更新的测试期望
+
+**① 渠道列表 + 界面导航**：`minimaxintl` 是**第二次调用 `registerMinimaxLlm`**，注册在
+`minimax` 之后、`gemini` **之前**；导航由 17 项变 **18 项**（17 渠道 + 1 聚合面板）。
+
+**② 两个 MiniMax 站要分别断言**：界面标签是 `MiniMax Code (中国版)` 与
+`MiniMax Code (国际版)`。此前只写 `includes("MiniMax Code")`，**两站都命中**，
+国际版被删也不会红 —— 已改为两条独立断言。
+
+> 💡 又见「薄胶水」：上游这一轮 64 个文件、+4766 行，新增一条渠道并把国内站改了名 ——
+> 本仓库的**产品代码仍是 0 行**，只更新了**测试期望**与文档。
+
+</details>
+
+<details>
 <summary><b>2026-10-15 · 上游升级到 <code>023de5f</code>（0.2.0-rc.11）</b></summary>
 
 依赖从 `50023bc3f462c33be5ea37bda76326fc15bc59b6` 更新到

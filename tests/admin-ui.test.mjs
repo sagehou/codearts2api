@@ -86,7 +86,7 @@ test("/admin 能渲染出上游 Jet Hub 界面", async (t) => {
   // ② 页头与品牌。
   assert.match(html, /Jet Hub/, "页头应显示 Jet Hub")
 
-  // ③ 左侧导航包含 16 个渠道及 aggregate 聚合设置面板。
+  // ③ 左侧导航包含 17 个渠道及 aggregate 聚合设置面板。
   const labels = [...rootElement.querySelectorAll(".dim-jh-rail button")].map((button) => button.textContent.trim())
   for (const expected of [
     "CodeArts",
@@ -98,7 +98,10 @@ test("/admin 能渲染出上游 Jet Hub 界面", async (t) => {
     "Cline",
     "Loomy",
     "Raccoon",
-    "MiniMax Code",
+    // ⚠️ 国产 / 国际两站要分别断言：`includes("MiniMax Code")` 对两条都成立，
+    //    只写一条的话，国际版被删掉也不会红。
+    "MiniMax Code (中国版)",
+    "MiniMax Code (国际版)",
     "ZCode",
     "OpenCode",
     "Gemini Code Assist",
@@ -111,7 +114,7 @@ test("/admin 能渲染出上游 Jet Hub 界面", async (t) => {
       `渠道列表应包含 ${expected}，实际：${labels.join(" / ")}`,
     )
   }
-  assert.equal(labels.length, 17, `导航应含 16 个渠道及 1 个聚合面板，实际 ${labels.length}`)
+  assert.equal(labels.length, 18, `导航应含 17 个渠道及 1 个聚合面板，实际 ${labels.length}`)
 
   // ④ 上游样式被注入（installJetHubStyles 走通了 document.head）。
   assert.ok(window.document.head.querySelectorAll("style").length >= 1, "应注入上游样式表")
