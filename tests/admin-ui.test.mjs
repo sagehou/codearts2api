@@ -86,7 +86,7 @@ test("/admin 能渲染出上游 Jet Hub 界面", async (t) => {
   // ② 页头与品牌。
   assert.match(html, /Jet Hub/, "页头应显示 Jet Hub")
 
-  // ③ 左侧导航包含 18 个渠道及 aggregate 聚合设置面板。
+  // ③ 左侧导航包含 19 个渠道及 aggregate 聚合设置面板。
   const labels = [...rootElement.querySelectorAll(".dim-jh-rail button")].map((button) => button.textContent.trim())
   for (const expected of [
     "CodeArts",
@@ -107,6 +107,7 @@ test("/admin 能渲染出上游 Jet Hub 界面", async (t) => {
     "Gemini Code Assist",
     "OfficeAce",
     "Accio",
+    "AutoClaw (智谱)",
     "ModelScope (魔搭)",
     "聚合 (跨渠道)",
   ]) {
@@ -115,7 +116,7 @@ test("/admin 能渲染出上游 Jet Hub 界面", async (t) => {
       `渠道列表应包含 ${expected}，实际：${labels.join(" / ")}`,
     )
   }
-  assert.equal(labels.length, 19, `导航应含 18 个渠道及 1 个聚合面板，实际 ${labels.length}`)
+  assert.equal(labels.length, 20, `导航应含 19 个渠道及 1 个聚合面板，实际 ${labels.length}`)
 
   // ④ 上游样式被注入（installJetHubStyles 走通了 document.head）。
   assert.ok(window.document.head.querySelectorAll("style").length >= 1, "应注入上游样式表")

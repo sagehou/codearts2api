@@ -45,7 +45,7 @@
 
 ## 特性
 
-- **多渠道账号管理**：`/admin` 原样复用上游 Jet Hub 设置页 —— 18 个渠道的增删改查、
+- **多渠道账号管理**：`/admin` 原样复用上游 Jet Hub 设置页 —— 19 个渠道的增删改查、
   账号池、额度与限流、模型级 / 渠道级开关、聚合路由面板、备份与迁移。
 - **OpenAI 兼容网关**：`/v1/models`、`/v1/chat/completions`、`/v1/responses`，
   支持 SSE 流式、图片输入与 token 用量统计。
@@ -83,6 +83,25 @@ npm start            # 默认 http://127.0.0.1:8080/admin
 > 因为上游的 `lib/` **不入库**、必须现场编译。所以**先确保 pnpm 可用**：
 > `corepack enable`（Node 自带）或 `npm i -g pnpm`。装不上时最典型的报错是
 > `pnpm: command not found`。
+
+> ⚠️ **pnpm 11 的「新包冷却期」会让上游发布后 24 小时内的安装失败。**
+> pnpm 11 默认拒绝装上「发布不足 24 小时」的包，而上游会把它刚发布的 DSH 基础包
+> （`@deepseek-ai/dsh-*`）写进**自己的** `pnpm-lock.yaml` —— npm 在克隆目录里跑
+> `prepare` 时就会撞上，报：
+>
+> ```
+> The lockfile contains entries that the active policies reject.
+> @deepseek-ai/dsh-llm@0.2.1-rc.2 was published at …, within the minimumReleaseAge cutoff
+> ```
+>
+> 放行办法（**只有环境变量能穿透**，`.npmrc` 里写 `minimum-release-age` 无效、
+> `npm_config_*` 也无效 —— 均已实测）：
+>
+> ```bash
+> PNPM_CONFIG_MINIMUM_RELEASE_AGE=0 npm install --include=dev
+> ```
+>
+> 这是**限时**问题：等那批包发布满 24 小时，裸 `npm install` 就会自动恢复正常。
 
 ## 配置
 
@@ -131,7 +150,7 @@ chmod 600 ~/.codearts2api/.credentials.yaml      # 权限校验要求，否则�
 
 ### 管理界面
 
-打开 `/admin`。左侧导航为 **18 个渠道 + 1 个「聚合 (跨渠道)」面板**，页头「网关」按钮
+打开 `/admin`。左侧导航为 **19 个渠道 + 1 个「聚合 (跨渠道)」面板**，页头「网关」按钮
 可查看监听地址、复制 API Key 与模型清单。
 
 > ⚠️ `/admin` **没有鉴权**，请先读[安全边界](#安全边界)。
@@ -518,6 +537,11 @@ npm install "dsh-codearts-auth@git+https://gitee.com/iJetLi/deepseek-harness-cod
 `npm install` 会重新 clone 上游并跑它的 `prepare`（`pnpm build:all`）现场编译 `lib/` ——
 所以要**确保 pnpm 可用**（`corepack enable`）。
 
+> ⚠️ 上游若刚发布了新版 DSH 基础包，pnpm 11 的**新包冷却期**（默认 24 小时）会拒绝
+> 安装它自己锁文件里的那些包。此时加前缀：
+> `PNPM_CONFIG_MINIMUM_RELEASE_AGE=0 npm install …`（原理与实测见
+> [快速开始](#快速开始) 的同名提示）。
+
 **3. 重建前端产物（必做）** —— 界面的 JS 是上游产物的拷贝，不重建就还是旧界面：
 
 ```bash
@@ -556,7 +580,7 @@ npm start
 **没有这行、或直接抛错**，就说明上游改了端点路径或装配方式 —— 错误信息会告诉你去
 `src/upstream.js` 改哪个常量。
 
-**6. 真机点一下（建议）** —— 打开 `/admin`，确认：左侧导航完整（18 个渠道 + 聚合面板）、
+**6. 真机点一下（建议）** —— 打开 `/admin`，确认：左侧导航完整（19 个渠道 + 聚合面板）、
 账号列表能读出 source、页头「网关」开关能开关。
 
 **回滚**

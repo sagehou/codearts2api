@@ -19,13 +19,13 @@
     "format:check": "prettier --check ."
   },
   "dependencies": {
-    "@deepseek-ai/cordis": "4.0.4",
-    "@deepseek-ai/dsh-attachment": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-attachment-local": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-credentials": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-credentials-local": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-llm": "0.2.0-rc.2",
-    "dsh-codearts-auth": "git+https://gitee.com/iJetLi/deepseek-harness-codearts.git#1266165baf6cc2918a06ac35a2df472980c89d6e"
+    "@deepseek-ai/cordis": "4.0.5",
+    "@deepseek-ai/dsh-attachment": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-attachment-local": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-credentials": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-credentials-local": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-llm": "0.2.1-rc.2",
+    "dsh-codearts-auth": "git+https://gitee.com/iJetLi/deepseek-harness-codearts.git#b0a6409e96181943672c6a65c549964ed50a56be"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

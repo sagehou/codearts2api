@@ -42,8 +42,16 @@ WORKDIR /app
 # 💡 `sharp`（附件服务用来校验/缩放图片）是**原生包**，靠 optionalDependencies
 #    分发平台二进制。lockfile 里已含 linux-x64 / linuxmusl-x64 等全部平台条目，
 #    故 Debian 基底能直接装上，不需要额外 apt 依赖（预编译包自带 libvips）。
+#
+# ⚠️ `PNPM_CONFIG_MINIMUM_RELEASE_AGE=0` **不能删**：pnpm 11 有「新包冷却期」
+#    （默认拒绝装上发布不足 24 小时的包），而上游会把它**刚发布**的 DSH 基础包
+#    （`@deepseek-ai/dsh-*`）写进自己的 `pnpm-lock.yaml`，于是 prepare 直接失败：
+#    `The lockfile contains entries that the active policies reject …`。
+#    ⚠️ 只有这个**环境变量**能穿透到 npm 拉起的 pnpm 子进程 —— `.npmrc` 与
+#    `npm_config_*` 均已实测无效。删掉这行，镜像会在上游每次发版后约 24 小时内
+#    构建失败。详见 README「快速开始」的同名提示。
 COPY package.json package-lock.json* ./
-RUN npm install --include=dev --no-audit --no-fund
+RUN PNPM_CONFIG_MINIMUM_RELEASE_AGE=0 npm install --include=dev --no-audit --no-fund
 
 # ── 源码与前端构建 ──
 COPY . .

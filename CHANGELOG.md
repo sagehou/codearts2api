@@ -7,6 +7,64 @@
 ---
 
 <details open>
+<summary><b>2026-10-18 · 同步升级上游与 DSH 基础包（<code>b0a6409</code> / 0.2.1-rc.2）+ 新增 AutoClaw</b></summary>
+
+依赖从 `1266165…`（0.2.0-rc.11）更新到 `b0a6409e96181943672c6a65c549964ed50a56be`
+（**0.2.1-rc.2**）。这次上游**连 DSH 基础包一起升了**，本仓库必须跟着换 ——
+上游把 peer 要求改成了 `^0.2.1-rc.2`，旧的 `0.2.0-rc.2` **已不再被接受**：
+
+| 包                               | 旧版本       | 新版本       |
+| -------------------------------- | ------------ | ------------ |
+| `@deepseek-ai/cordis`            | `4.0.4`      | `4.0.5`      |
+| `@deepseek-ai/dsh-attachment`    | `0.2.0-rc.2` | `0.2.1-rc.2` |
+| `@deepseek-ai/dsh-credentials`   | `0.2.0-rc.2` | `0.2.1-rc.2` |
+| `@deepseek-ai/dsh-llm`           | `0.2.0-rc.2` | `0.2.1-rc.2` |
+| （另有 `-local` 两包同版本跟随） |              |              |
+
+⚠️ `cordis` 是**连带**升级：`0.2.1-rc.2` 的 DSH 包要求 `~4.0.5`，留着 `4.0.4` 会解析失败。
+
+### 上游变化
+
+- **新增 AutoClaw（智谱）渠道**：登录即领积分、1M 上下文模型反代、流水批次展示临期倒计时。
+- **OpenCode / minimax / officeace / buddy**：可达性判据、国际站余额与签到、签到审计、
+  11128 / 11140 分类与按账号换号等多处修复。
+- 客户端多模式弹窗的 `select` 失效改为卡片单选组（覆盖 ZCode / Accio / AutoClaw）。
+
+### ⚠️ 安装障碍：pnpm 11 的「新包冷却期」（本次踩到）
+
+pnpm 11 默认拒绝安装**发布不足 24 小时**的包。上游把它刚发布的 `0.2.1-rc.2`
+写进了**自己的** `pnpm-lock.yaml`，而 npm 拉 git 依赖时会在克隆目录里跑上游的
+`prepare`（`pnpm install` + `pnpm build:all`），于是整体安装失败：
+
+```
+The lockfile contains entries that the active policies reject.
+@deepseek-ai/dsh-llm@0.2.1-rc.2 was published at …, within the minimumReleaseAge cutoff
+```
+
+逐项实测的放行方式（**只有这一种有效**）：
+
+| 写法                                                          | 结果    |
+| ------------------------------------------------------------- | ------- |
+| `PNPM_CONFIG_MINIMUM_RELEASE_AGE=0 npm install …`             | ✅ 生效 |
+| `.npmrc` 里写 `minimum-release-age=0` / `minimumReleaseAge=0` | ❌ 无效 |
+| `npm_config_minimum_release_age=0`（npm_config 前缀）         | ❌ 无效 |
+| 用户级 `~/.npmrc`、全局 pnpm rc                               | ❌ 无效 |
+
+已在 [README 快速开始](README.md#快速开始)与 `Dockerfile` 两处**写明**这条命令及
+失效原因（这是**限时**问题：那批包满 24 小时后裸 `npm install` 自动恢复）。
+
+### 本仓库改动与验证
+
+- 更新 `package.json` 全部 7 项依赖与 `package-lock.json`；渠道集合**新增 `autoclaw`**。
+- 更新测试期望：渠道注册顺序 `gemini → autoclaw → accio → modelscope → zcode`（**19 个渠道
+  - 2 条聚合路由**）；导航 **20 项**，新增独立断言 `AutoClaw (智谱)`。
+- README 渠道数量改 19，并新增 pnpm 冷却期说明；`Dockerfile` 给安装层加放行变量。
+- `npm test` **22/22 通过**；`npm run lint`、`npm run format:check` 与 `git diff --check` 通过。
+- **产品代码 0 行改动**；管理界面产物由 `npm run build` 重建。未用真实账号验证新渠道推理。
+
+</details>
+
+<details>
 <summary><b>2026-10-17 · 上游升级到 <code>1266165</code>（新增 ModelScope）</b></summary>
 
 依赖从 `0225f08ae6db4b5b2e8d3df71061c9660dee0ddb` 更新到
