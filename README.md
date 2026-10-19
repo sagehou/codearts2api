@@ -29,6 +29,7 @@
 - [安全边界](#安全边界)
 - [常见问题](#常见问题)
   - [远程部署的登录隧道](#远程部署的登录隧道)
+  - [出不去墙外服务（Gemini / 出口代理）](#出不去墙外服务gemini--出口代理)
   - [图片输入](#图片输入)
   - [已知边界](#已知边界)
 - [架构](#架构)
@@ -152,6 +153,10 @@ chmod 600 ~/.codearts2api/.credentials.yaml      # 权限校验要求，否则�
 
 打开 `/admin`。左侧导航为 **19 个渠道 + 1 个「聚合 (跨渠道)」面板**，页头「网关」按钮
 可查看监听地址、复制 API Key 与模型清单。
+
+账号卡片上的按钮随渠道而变：**测试 / 重测 / 重置 / 停用 / 删除** 是通用的；
+「**代理**」只对 `opencode` 与 `gemini` 出现（两者是**两份独立配置**，见
+[出不去墙外服务](#出不去墙外服务gemini--出口代理)）；「**指纹**」只对 `opencode` 出现。
 
 > ⚠️ `/admin` **没有鉴权**，请先读[安全边界](#安全边界)。
 
@@ -281,6 +286,63 @@ server {
 > ⚠️ **「整体还原」会覆盖现有状态**：若备份里没有 OpenCode 匿名通道条目，导入后它会消失、
 > `/v1/models` 随之变空。**重启一次即可恢复**（插件启动时会自动补一条）。只想加账号、
 > 不想动现有配置时请选**「单独导入」**。
+
+### 出不去墙外服务（Gemini / 出口代理）
+
+`gemini`（Gemini Code Assist）是本项目里**必须过墙**的渠道：令牌端点
+（`oauth2.googleapis.com/token`）、userinfo、Cloud Code 的配额与推理端点
+（`cloudcode-pa.googleapis.com`）全部在墙外。
+
+**典型症状**：浏览器**能**打开授权页并点「同意」，回到 `/admin` 却一直失败、账号列表里
+始终没有这个号；或账号在，但积分和对话全部失败。这时**不要去查 `client_secret` 与
+`redirect_uri`** —— 这是代理问题。
+
+**根因**：浏览器读 **Windows 系统代理（WinINET）**，而插件跑在 Node 的 `fetch`
+（undici）上，它**既不读系统代理、也不读 `HTTP(S)_PROXY`**。所以「浏览器能用、程序不能用」
+是这个渠道最典型、也最容易误诊的形态。
+
+两种配法，**任选其一**（① 优先）：
+
+**① 给账号单独配出口代理（推荐）**
+
+在 `/admin` 的 Gemini 面板里点账号卡片上的「**代理**」→ 填地址
+（`http://127.0.0.1:7897` / `socks5://…` / 带认证的 `http://user:pass@host:port`）
+→「测试连接」→ 保存。要点：
+
+- 「测试连接」打的是 **Google 自己的端点**，不是通用的出口 IP 查询服务 —— 代理能通
+  `ip-api` 却被 Google 拒的情况很常见，用后者会产生**假阳性**。
+- 配好后该账号的**登录、续期、积分、对话**全部走这条出口，且每个账号可以配不同的代理。
+- ⚠️ **重新登录会继承代理**：`refresh_token` 失效时面板提示的标准动作是「删号重登」，而重登
+  会造一个**全新账号 id** —— 上游为此让新账号从**同类账号继承**代理。继承只在**恰好一个**
+  Gemini 账号配了代理时生效（多个时无法判断该用哪个，宁可直连也不猜错出口）。所以重登前
+  先确保只有一个号配着代理。
+- ⚠️ 它只作用于 Gemini，与 **OpenCode 的「代理」是两份独立配置**（两个按钮、两个池字段），
+  清掉其中一个不影响另一个。
+- ⚠️ 代理配置随账号条目存进 `jet-hub/state.json`，因此会随 `/admin` 的备份导出/导入一起往返。
+
+**② 启动前导出环境变量**
+
+```powershell
+# PowerShell
+$env:HTTPS_PROXY = 'http://127.0.0.1:7897'
+$env:HTTP_PROXY = 'http://127.0.0.1:7897'
+$env:NO_PROXY = 'localhost,127.0.0.1,::1'
+npm start
+```
+
+⚠️ **必须真的导出为环境变量**。只打开 Windows 设置里的「使用代理服务器」**对 Node 无效**
+—— 那正是「浏览器能用、程序不能用」的原因。
+
+⚠️ 与宿主 DSH 的差异（重要）：上游 README 说宿主 dsh 会在**第一个插件加载前**装全局代理
+分发器，因此导出 env 就能覆盖插件的全部请求。**本项目不是 dsh 宿主**，没有那层分发器；
+只有 Node 24+ 带 `NODE_USE_ENV_PROXY=1` 时，内置 `fetch` 才读 `HTTPS_PROXY`（本机在
+Node 24.18 上实测：不加该变量 → 直连；加了 → 走代理并因代理不可用报 `ECONNREFUSED`）。
+所以在本项目里 **② 依赖 Node 版本 + 该变量**，稳妥做法仍是 ①。
+
+**报错文案**：连不上时插件会明确提示「疑似需要代理」并带上根因码
+（如 `UND_ERR_CONNECT_TIMEOUT`），登录失败、续期失败、积分查询失败与对话失败四条腿
+给的是同一句指路文案，不再是裸 `fetch failed`。代理恢复后**无需重登**（凭据没被标失效，
+后台续期会在下一轮接上）。
 
 ### 图片输入
 
@@ -542,6 +604,19 @@ npm install "dsh-codearts-auth@git+https://gitee.com/iJetLi/deepseek-harness-cod
 > `PNPM_CONFIG_MINIMUM_RELEASE_AGE=0 npm install …`（原理与实测见
 > [快速开始](#快速开始) 的同名提示）。
 
+> ⚠️ **npm 11 的 `allow-scripts` 可能让这条命令在「git dep preparation」阶段失败**
+> （报 `EALLOWSCRIPTS: --allow-scripts is not allowed in project-scoped installs`，
+> 看起来像网络/上游问题）。原因是 `~/.npmrc` 里的 `allow-scripts=true` 被 npm 11 当成
+> 命令行参数拒掉，而报错发生在**上游克隆目录里跑的第二次 npm** 里。绕过方式是指定一个
+> 不含该键的 userconfig：
+>
+> ```bash
+> npm install "dsh-codearts-auth@git+…#$NEW" --include=dev --no-audit --no-fund \
+>   --userconfig /tmp/clean-npmrc      # 内容只需一行 registry=…
+> ```
+>
+> 清空 `NPM_CONFIG_ALLOW_SCRIPTS` 环境变量**无效**（值来自 `~/.npmrc`）。详见 CHANGELOG。
+
 **3. 重建前端产物（必做）** —— 界面的 JS 是上游产物的拷贝，不重建就还是旧界面：
 
 ```bash
@@ -563,7 +638,18 @@ npm run format:check  # 确认代码风格一致
 | `host.test.mjs` 的「provider 列表与期望不一致」        | 上游**增删了渠道**       | 按报错给出的实际列表更新 `EXPECTED_PROVIDERS`（只改测试） |
 | `admin-ui.test.mjs` 的「只请求我们 shim 能提供的模块」 | 上游引入**新的外部依赖** | 在 `web/admin.jsx` 的 `captured.factory()` 里补上该模块   |
 | `home-isolation.test.mjs`                              | 存储格式/隔离被改坏      | 看具体断言，通常与 `src/home.js` 或凭据服务有关           |
+| `format:check` 报**已有文件**（不是本次改的）          | 工作区行尾漂移           | 见下方「行尾」；**不要**用 `format` 去「修」代码          |
 | 其它                                                   | 契约漂移                 | 对照 `src/upstream.js` 顶部契约表                         |
+
+> ⚠️ **行尾陷阱**：Git `core.autocrlf=true` 时工作区会被检成 CRLF，而 Prettier 默认
+> `endOfLine: "lf"` ⇒ 一批**本来没动过**的文件也会报格式错误（`format` 还会把它们整份
+> 重写）。先确认是不是这个原因：
+>
+> ```powershell
+> git ls-files --eol | Select-String 'w/crlf'
+> ```
+>
+> 有输出就是行尾问题，把这些文件转回 LF 即可，**不要**去改内容。
 
 **5. 启动确认契约（关键一步）**
 

@@ -7,6 +7,89 @@
 ---
 
 <details open>
+<summary><b>2026-10-19 · 上游升级到 <code>82da5df</code>（Accio 请求级换号 + Gemini 出口代理）</b></summary>
+
+依赖从 `b0a6409e96181943672c6a65c549964ed50a56be` 更新到
+`82da5df88e90b831a833011b4ce506a934fdb1bc`（版本号仍是 **0.2.1-rc.2** —— 上游这次只发
+commit、没有动 `package.json` 的 version，所以 `@deepseek-ai/dsh-*` 基础包**维持原版本**，
+本仓库不需要换 peer）。
+
+### 上游变化（8 个 commit）
+
+- **Accio（阿里）请求级账号轮换**（IKM3ZV，本次最重要的修复）：402 / 流内 `error_code:402`、
+  429、401/403 现在会**自动切到池内下一个账号**（`ACCIO_MAX_ROTATE = 8`），并按类别写冷却
+  （额度至 UTC+8 当日 24:00、限流 1h、**认证类只换号不写冷却**）。改前整条请求路径**零换号**
+  —— 池里登录 N 个账号也不带来 N 倍可用性。⚠️ 这一项把 `accio` 在
+  `provider-registry.ts` 的 `rateLimit` 从 `false` 翻回 `true`，`probeById` 与
+  `WRITES_RATE_LIMIT_PROVIDERS` 三处同改，因此面板上 Accio 的「重测 / 重置」**从恒为惰性
+  变成真正可用**。
+- **Gemini 出口代理**（IKLTZ2）：Gemini 全部端点都在墙外，而 Node 的 `fetch`（undici）
+  **既不读 Windows 系统代理、也不读 `HTTP(S)_PROXY`** ⇒ 症状是「浏览器授权成功、面板里
+  账号一直不出现」，极易误判成 `client_secret` / `redirect_uri` 配错。上游新增 `gemini-proxy.ts`，
+  账号卡片上多一个**「代理」按钮**（填 `http://…` / `socks5://…` / 带认证的地址，「测试连接」
+  直接打 Google 端点，避免用 ip-api 造出假阳性）；登录、续期、积分、对话四条腿全部走它，
+  探测与聚合折算路径也补上了同一个按账号 fetcher。连不上时提示改成「疑似需要代理 + 根因码」
+  （如 `UND_ERR_CONNECT_TIMEOUT`），不再是裸 `fetch failed`。
+- **Qoder「未开通每日领取」判据重做**（IKJSHK + PR !117 审计整改 P0-1）：改用服务端活动列表
+  三态 + **「本次请求是否真的带上了成对 machine 头」**作第三腿。旧判据在「拿不到 machine 头」
+  的纯插件环境下会把**全部 qoder / qodercn 账号误判为未开通**并渲染成「请先用 Qoder 官方客户端
+  登录一次」；该误报本次修掉。
+- **OpenAI 网关绑定探针显式直连**（IKM3UI）：免疫 `NODE_USE_ENV_PROXY` 等环境代理，避免
+  「本机回环探测被代理带走」。
+- 另有 OpenCode 面板与聚合路由的多处小修（客户端 `opencode-proxy-modal` 增加 Gemini 版弹窗）。
+
+### 本仓库改动与验证
+
+- 只改 `package.json` / `package-lock.json` 的一行依赖（两个文件各一处 `resolved` 同步）；
+  **产品代码 0 行改动**，渠道数量仍是 **19 个渠道 + 1 个聚合面板**，测试期望列表**无需更新**。
+- `npm run build` 重新拷贝上游客户端产物（`public/upstream-jet-hub.js` 已含 `GeminiProxyModal`，
+  与 `node_modules` 里的 `lib/client/jet-hub.js` **哈希一致**）。
+- `npm test` **22/22 通过**；`npm run lint` 通过；`npm run format:check` 通过
+  （见下方「本机行尾」）。
+- `npm start` 启动日志含契约核对行
+  （`上游契约核对通过：/api/jet-hub, /api/jet-hub/captcha-carrier`），端口 8326 被既有实例
+  占用时网关只记 `EADDRINUSE` 并跳过，不影响 `/admin`（文档已写明的已知边界）。
+- 未用真实账号验证新换号策略与 Gemini 代理通路（需要墙外出口与多个 Accio / Gemini 账号）。
+
+### 安装障碍与坑（本次实际踩到）
+
+**① npm 11 的 `allow-scripts` 会把 git 依赖的 `prepare` 打死。**
+本机 `~/.npmrc` 里有 `allow-scripts=true`，而 npm 11.16 的
+`resolveAllowScripts()` 对**项目内**安装会**直接抛错**
+（`EALLOWSCRIPTS: --allow-scripts is not allowed in project-scoped installs`）——
+它把这个配置当成了「命令行传 `--allow-scripts`」。更麻烦的是这条错误发生在
+**上游克隆目录里跑的第二次 npm**（`git dep preparation`），所以外层报的是
+`git dep preparation failed`，看起来像网络或上游的问题。
+
+绕过方式：给这条命令指定一个**不含 `allow-scripts` 的 userconfig**：
+
+```bash
+npm install "dsh-codearts-auth@git+https://gitee.com/iJetLi/deepseek-harness-codearts.git#<commit>" \
+  --include=dev --no-audit --no-fund --userconfig /tmp/clean-npmrc   # 里面只留 registry
+```
+
+清空 `NPM_CONFIG_ALLOW_SCRIPTS` 环境变量**无效**（配置来自 `~/.npmrc`，不是 env）。
+装完后 npm 会警告 `dsh-codearts-auth` 的 `prepare` 与 `esbuild` 的 `install` 脚本
+「not yet covered by allowScripts」—— **但这次构建成功了**，产物时间戳与内容都对得上；
+下次若真被拦住，按提示 `npm approve-scripts <pkg>` 或往 `package.json` 写
+`allowScripts` 字段。
+
+**② `PNPM_CONFIG_MINIMUM_RELEASE_AGE=0` 这次仍要带**（pnpm 11 的新包冷却期，见上一条
+2026-10-18 记录），否则上游克隆目录里的 `pnpm install` 会因它锁文件里的 `0.2.1-rc.2`
+被拒。
+
+**③ 本机行尾漂移会让 `npm run format:check` 假红。**
+Git 的 `core.autocrlf=true` 把工作区若干文件检成了 **CRLF**，而 Prettier 默认
+`endOfLine: "lf"` ⇒ 这 6 个文件（`CHANGELOG.md` / `README.md` / `package.json` /
+`src/server.js` / `tests/admin-ui.test.mjs` / `tests/host.test.mjs`）在**升级前就是红的**，
+与本次升级无关。本次把这 11 个被检成 CRLF 的文件在工作区**统一转回 LF**
+（内容零变化，`git diff` 仍只有依赖两行），`format:check` 随即通过。
+提交内容不受影响（仓库存的是 LF），但**本机检出后**若再次变红，先查
+`git ls-files --eol | Select-String 'w/crlf'`，而不是去改代码。
+
+</details>
+
+<details>
 <summary><b>2026-10-18 · 同步升级上游与 DSH 基础包（<code>b0a6409</code> / 0.2.1-rc.2）+ 新增 AutoClaw</b></summary>
 
 依赖从 `1266165…`（0.2.0-rc.11）更新到 `b0a6409e96181943672c6a65c549964ed50a56be`
