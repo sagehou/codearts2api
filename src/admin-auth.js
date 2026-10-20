@@ -228,11 +228,19 @@ export function clearSessionCookie() {
   return `${SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax`
 }
 
-/** 判断请求是否走了 HTTPS（含反向代理转发的情形）。 */
+/**
+ * 判断请求是否走了 HTTPS。
+ *
+ * 只看连接本身是否加密（`socket.encrypted`，即 Node 的 `tls` server）。
+ * **不看 `X-Forwarded-Proto`**：那个头客户端能随便写，采信它等于让别人
+ * 决定我们给不给会话 Cookie 加 `Secure`；而不加 `Secure` 的后果只是
+ * 「Cookie 在明文连接上也会被发送」这个已知前提，不是新暴露面。
+ *
+ * 反代终结 TLS 的部署下这里会返回 `false`，即会话 Cookie 不带 `Secure` 标志。
+ * 这是**刻意的简化**：Cookie 仍能正常工作，只是少了这一层标记。
+ */
 export function isSecureRequest(request) {
-  if (request.socket?.encrypted === true) return true
-  const forwarded = request.headers?.["x-forwarded-proto"]
-  return typeof forwarded === "string" && forwarded.split(",")[0].trim().toLowerCase() === "https"
+  return request.socket?.encrypted === true
 }
 
 /**
@@ -301,12 +309,16 @@ export class LoginThrottle {
   }
 }
 
-/** 从请求里取来源 IP（考虑反向代理转发头）。 */
+/**
+ * 从请求里取来源 IP：**就是 TCP 对端地址**。
+ *
+ * 刻意不读 `X-Forwarded-For` / `X-Real-IP`：客户端能随手伪造，一换就是「一个
+ * 全新的 IP」，登录限速直接失效。只有部署在自己控制的代理后面时它们才有意义，
+ * 而本项目**不支持**那种形态 —— 需要反代时请让反代直接转发 TCP，别加这两类头。
+ *
+ * @param request - node 的 `IncomingMessage`。
+ */
 export function clientIp(request) {
-  const forwarded = request.headers?.["x-forwarded-for"]
-  if (typeof forwarded === "string" && forwarded !== "") return forwarded.split(",")[0].trim()
-  const real = request.headers?.["x-real-ip"]
-  if (typeof real === "string" && real !== "") return real.trim()
   return request.socket?.remoteAddress ?? "unknown"
 }
 

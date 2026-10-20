@@ -7,141 +7,80 @@
 ---
 
 <details open>
-<summary><b>2026-10-20 · 管理端鉴权（公网部署不再需要反代做访问控制）+ <code>PROXY_GATEWAY</code> 默认开启</b></summary>
+<summary><b>2026-10-20 · 管理端登录鉴权、<code>/v1/*</code> 默认可用、Qoder 模型列表改走远端；上游升级 <code>cafe269</code></b></summary>
 
-响应 [issue #2「公网部署建议」](https://github.com/zhuweiyou/codearts2api/issues/2)：
-使用者要部署到公网服务器，但「加安全很麻烦，小白不太懂」，希望部署后自带验证。
+## 管理端登录鉴权
 
-### 问题
+部署到公网不再需要反向代理做访问控制，服务自带登录页。
 
-`/admin`、`/admin.js`、`/api/jet-hub` 此前**全部无鉴权**，而 `/api/jet-hub` 的
-`backup.export` 能导出**全部账号凭据**、`gateway.getEnabled` 能**明文取回网关 Key**。
-也就是说「公网可达」等于「账号全送」—— 唯一的补救是让用户去配 nginx Basic Auth，
-正是 issue 里说的那个门槛。
+**使用方式**：首次启动生成 `<CODEARTS2API_HOME>/admin-key`，打开 `/admin` 粘贴即可进入。
+密钥固定不变，要换就删除该文件，或改用 `CODEARTS2API_ADMIN_KEY` 指定。
 
-### 新增：独立的管理密钥 + 登录页
+**管理密钥与网关 Key 是两把**：网关 Key 给调用方访问 `/v1/*`，管理密钥用来进后台。
+分开是为了让「把网关 Key 发给别人」不等于「把后台也交出去」。
 
-- **新增 `src/admin-auth.js`**：密钥生成/读取、常量时间校验、会话令牌、登录限速。
-- **新增 `src/admin-login-page.js`**：服务端渲染的登录表单（不依赖前端 JS）。
-- 首次启动生成 `<home>/admin-key`（`0600`，日志**只打一次**），也可用
-  `CODEARTS2API_ADMIN_KEY` 指定。
-- 浏览器：登录后下发 **HttpOnly 会话 Cookie**（`SameSite=Lax`，30 天）。
-  令牌是 `HMAC(admin-key, 常量)` —— 不可伪造、不泄露密钥、换钥即全体失效。
-- 脚本：仍接受 `Authorization: Bearer <admin-key>`，curl / 监控不受影响。
-- 登录失败按来源 IP 限速（10 次 / 10 分钟），且**限速期间正确密钥也被挡**
-  （否则「猜对一次」就能绕过）。
-- `CODEARTS2API_ADMIN_AUTH=0` 可关闭（本机调试），启动日志与 `/healthz` 都会如实反映。
+| 能力        | 说明                                                                      |
+| ----------- | ------------------------------------------------------------------------- |
+| 浏览器登录  | 登录后下发 HttpOnly 会话 Cookie，30 天有效                                |
+| 脚本 / 监控 | 支持 `Authorization: Bearer <admin-key>`                                  |
+| 防爆破      | 登录失败按来源 IP 限速：10 次 / 10 分钟                                   |
+| 关闭鉴权    | `CODEARTS2API_ADMIN_AUTH=0`（仅限本机，启动日志与 `/healthz` 会如实反映） |
 
-### 为什么**不**复用网关的 `api-key`
+**受保护范围**：`/`、`/admin`、`/api/jet-hub` 及全部管理静态资源需要登录。
 
-网关 Key 是**发给调用方**的（填进别人的客户端），管理权限不能跟着走 —— 否则
-「给了朋友 API Key」等于「给了朋友后台」。参考实现（workbuddy2api-panel）共用一把，
-本项目改为**分开**。
+**不需要登录的**：`/healthz`（不含密钥，供监控）、`/v1/*`（用网关 Key）、
+`/api/jet-hub/captcha-carrier`（验证码页面，需被内嵌浏览器直接打开）。
 
-### 默认拒绝的白名单
+**响应安全头**：管理页面统一带 CSP、`X-Frame-Options: DENY`、`nosniff`、`Referrer-Policy`。
 
-| 路径                                                                                                          | 处理                                                               |
-| ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| `/`、`/admin`、`/admin/`、`/admin.css`、`/admin-boot.js`、`/admin.js`、`/upstream-jet-hub.js`、`/api/jet-hub` | **拦截**                                                           |
-| `/healthz`                                                                                                    | 放行（不含密钥，监控用）                                           |
-| `/v1/*`                                                                                                       | 放行（插件网关自己的 Bearer，判定权只在一处）                      |
-| `/api/jet-hub/captcha-carrier`                                                                                | 放行（页面无秘密 + 要被 `<webview>` 直接导航，加鉴权会废掉 zcode） |
+## `/v1/*` 默认可用
 
-写成「默认拦截 + 显式放行」而不是逐条列举：黑名单的失效方式是**静默**的
-（新加一个静态文件自动变公开），白名单的失效方式是**显式**的（立刻有人报障）。
+不再需要 `PROXY_GATEWAY=1`。此前忘记设置会表现为 `/v1/*` 全 404，容器里不易察觉。
+需要关闭时设 `PROXY_GATEWAY=0`，该端口会返回明确的 `proxy_disabled` 提示。
 
-### 安全响应头
-
-管理相关响应统一带 CSP（`default-src 'none'` / `script-src 'self'` /
-`frame-ancestors 'none'`）、`X-Frame-Options: DENY`、`nosniff`、`Referrer-Policy`。
-
-为此把 `admin.html` 的**内联 `<style>` 与内联 `<script>` 拆成外部文件**
-（`public/admin.css`、`public/admin-boot.js`）—— 否则 `script-src 'self'` 会拦掉
-那个定义 `__ModuleLoader__` 的垫片，表现为整页白屏。
-
-> ⚠️ `style-src` 仍保留 `'unsafe-inline'`：上游 UI 用 React 的 `style={{…}}`，
-> 那是元素 style 属性（归 `style-src-attr`），CSS 的 `'unsafe-inline'` 覆盖不了它。
-> `img-src` 也要 `blob:`（上游导出 CSV/JSON 时用 `URL.createObjectURL`）。
-
-### `PROXY_GATEWAY` 改为默认开启
-
-初版要显式 `PROXY_GATEWAY=1`，那是个部署陷阱：容器里忘了设就表现为「服务起来了但
-`/v1/*` 全 404」，而 404 完全不像配置问题。现在默认开，要关才设 `PROXY_GATEWAY=0`
-（网关照旧监听 8326，本机开发可直连）。
-
-### 验证
-
-- 新增 `tests/admin-auth.test.mjs`（11 条）：拦截清单（含根路径 `/`）、401 形态、
-  放行清单、登录换 Cookie、伪造 Cookie、限速、开放重定向、安全响应头、密钥文件
-  生成与复用、`ADMIN_AUTH=0` 关闭路径。
-- `npm test` **33/33 通过**（含既有的 `/admin` 渲染端到端用例 —— 它现在也顺带验证了
-  「拆出去的 `admin-boot.js` 真的能定义 `__ModuleLoader__`」）。
-- `eslint` 与 `prettier --check` 全绿。
-
-</details>
-
-<details>
-<summary><b>2026-10-20 · 上游升级到 <code>b5dab83</code>（新增 AStudio + 模型目录刷新器）</b></summary>
+## 上游升级
 
 依赖从 `82da5df88e90b831a833011b4ce506a934fdb1bc` 更新到
-`b5dab839fe04d3a05a331c4a7d6b073a876c71f3`。版本号仍是 **0.2.1-rc.2**、`peerDependencies`
-与 `dependencies` **一字未改**（上游这次纯发 commit），所以 `@deepseek-ai/dsh-*` 基础包
-照旧，本仓库无需换 peer，也无需在 `src/host.js` 里补任何服务。
+`cafe269872f4b99af15745981ce8ff8e085b959b`，版本号仍为 **0.2.1-rc.2**
+（`peerDependencies` 与 `dependencies` 未变，无需换基础包）。
 
-### 上游变化（43 个 commit，+10627/−184）
+### Qoder 模型列表改走远端（本次重点）
 
-- **新增 AStudio（讯飞 astronautStudio）渠道** —— 第 20 个渠道。它**没有 OAuth**：登录靠
+此前 Qoder / Qoder(中国版) 的模型列表**恒用编译期快照**（国际版 2026-09-21、中国版
+2026-09-27），一次远端请求都不发。上游因此改价、改免费额度、上下架模型都不会被感知。
+
+现在 `/v1/models` 走远端目录，**倍率与免费标记跟随上游实时变化**：
+
+- 上游已把 `DeepSeek-Flash` 调为免费（0×）、`mmodel` 改名 `MiniMax-M3.1-Flash`（0.2 → 0.1），
+  这些变化现在能正确显示（此前一直显示旧的 0.1×）。
+- 远端目录**按账号下发**（一个免费额度号上游可能只给 2 条），所以缓存即「上次成功那个
+  账号的目录」。能力与元数据（图片支持、上下文长度、思考档位）取「远端 ∪ 内置表」的并集 ——
+  否则某个账号的窄目录会把模型误判成「不支持图片」并退化显示名。
+- 远端拉取失败或未登录时自动回退内置表，功能不受影响。
+
+### 思考档位解析对齐官方客户端
+
+- 档位白名单从 7 个收敛为官方的 **6 个**（`none`/`low`/`medium`/`high`/`xhigh`/`max`，无 `minimal`）。
+- `efforts` 现在同时接受**数组、逗号/空格分隔字符串、对象**三种形态。
+- 补齐顶层 `default_effort`、`supports_disabled`、`available_reasoning_effort`（后者是一个
+  `thinking_config` 对象，且仅在条目自身无档位时才读）的解析。
+
+### 其他
+
+- **新增 AStudio（讯飞 astronautStudio）渠道** —— 第 20 个渠道。它没有 OAuth：登录靠
   **导入本机桌面端已登录的会话文件**
   （`%LOCALAPPDATA%\Programs\AStudio Data\userdata\astron-session.json`，可用
-  `DSH_ASTUDIO_SESSION_FILE` 覆盖）。三处协议事实与本插件其它家都不同：推理基址在
-  `/model-gateway/v1` 而目录在 `/api/v1/model-manager`（拼 `/v1/models` 恒 404）、推理端点
-  **只认裸 slug**（填 `builtin/<base64>` 回 502 `model_not_found`）、失败有两种信封
-  （目录面是 HTTP 200 + `code !== 0`）。⚠️ 因为默认路径读 `LOCALAPPDATA`，
-  **远程/容器部署看不到本机会话**，需要用「打开认证页」或 env 指路径（已写进 README）。
-- **模型目录 20 分钟 TTL + 后台刷新器**：新增 `isCatalogFresh` 作**唯一**新鲜度判据，
-  A 类四家（loomy / minimax / zcode / raccoon）与 B 类四家 + officeace + astudio 全部接入，
-  `be42b25` 遗留的「刷新器拿不到各家 `refresh`」由 `3186eaf` 补了 12 家转发 +
-  参与度检测（否则刷新器**空转**）。用户改设置时立即失效缓存。对本项目的意义：
-  `/v1/models` 不再每次都等上游拉目录（`a80ab4a` 实测旧路径卡 7 秒，
-  `a4765aa` 实测 `resolveModel` 阻塞 70 秒），**网关首轮响应明显变快**。
-- **共享余额读数改为 stale-while-revalidate**：先回旧值、后台定时保鲜，面板打开更快。
-- **聚合路由**：取消请求不再被折算成 `UNUSABLE`（此前取消一次 = 该渠道消失 60 秒）；
-  目录缓存判据并入 `isCatalogFresh`，消掉第二份实现；复审修掉 3 Critical + 2 Important。
-- **TRAE 签到收尾参与 1024 打卡抽奖**（`trae-lottery.ts`，454 行用例）。
-- **CodeArts**：补 `refresh` 寿命腿（30 天硬上限导致的续期漏窗 + `refreshable` 永真）；
-  APIG 瞬时签名故障改为**有界重发** + abort 守卫。
-- **AutoClaw**：`access_token` 死线改以 **JWT exp** 为准（删掉编造的 7 天，IKOYEG）；
-  非法思考档位本地拦截，避免按最贵档静默计费。
-- **登录失败文案**： 「未开通」类失败不再拼「请重新点击「+ 新建账号」」这条**假出路**。
+  `DSH_ASTUDIO_SESSION_FILE` 指向别处）。⚠️ 远程/容器部署看不到本机会话，
+  需要用「打开认证页」或该环境变量指路径。
+- **模型目录 20 分钟 TTL + 后台刷新**：`/v1/models` 不再每次都等上游拉目录，
+  **网关首轮响应明显变快**；用户改设置时立即失效缓存。
+- **共享余额读数改为先回旧值再后台保鲜**：面板打开更快。
+- **聚合路由**：取消请求不再被当作渠道不可用（此前取消一次 = 该渠道消失 60 秒）。
+- **TRAE 签到**收尾参与 1024 打卡抽奖。
+- **CodeArts**：修复 30 天硬上限导致的续期漏窗。
+- **AutoClaw**：token 死线以 JWT exp 为准；非法思考档位本地拦截，避免按最贵档计费。
 
-### 本仓库改动与验证
-
-- `package.json` / `package-lock.json` 各一处依赖行。
-- **测试期望是本次唯一需要动的代码**（这正是「新增渠道 0 行」那条承诺的兑现方式）：
-  `tests/host.test.mjs` 的 `EXPECTED_PROVIDERS` 加 `"astudio"`（位置在 `accio` 之后、
-  `modelscope` 之前 —— 由实际注册序实测得到，不是照注册表抄）；`tests/admin-ui.test.mjs`
-  导航断言加 `AStudio`，总数 20 → **21**（20 渠道 + 1 聚合）。
-- 渠道数文案 19 → **20**（README 三处 + 测试注释两处）。
-- `npm run build` 重建产物（`public/upstream-jet-hub.js` 含 34 处 `astudio`）。
-- `npm test` **22/22 通过**；`npm run lint`、`npm run format:check` 通过；
-  `npm start` 契约核对行正常，`/healthz` 的 `providers` 实测为 20 渠道 + `aggregate` +
-  `jet-hub-auto`。
-- **产品代码 0 行改动**。未用真实账号验证 AStudio 链路（需要本机装桌面端并扫码）与
-  TRAE 抽奖（需要真机签到）。
-
-### 坑
-
-**① 同上次：npm 11 `allow-scripts` + pnpm 新包冷却期**，命令仍需
-`--userconfig <干净 npmrc>` 与 `PNPM_CONFIG_MINIMUM_RELEASE_AGE=0`（详见上一条）。
-本次还额外撞了一次 `ECONNRESET`（拉 `undici` 时），原样重试即过 —— 不需要改配置。
-
-**② `EXPECTED_PROVIDERS` 的顺序只能靠实测。** 上游 `provider-registry.ts` 的声明顺序与
-`index.ts` 的**适配器注册顺序不同**，而断言比的是后者。快速拿真值：
-
-```bash
-node -e "import('./tests/helpers.mjs').then(async h=>{const a=await h.startTestApp();
-console.log(JSON.stringify(a.host.ctx.get('llm').listProviders().map(e=>e.id)));await a.close();process.exit(0)})"
-```
+渠道数 19 → **20**。
 
 </details>
 
@@ -190,41 +129,23 @@ commit、没有动 `package.json` 的 version，所以 `@deepseek-ai/dsh-*` 基�
   占用时网关只记 `EADDRINUSE` 并跳过，不影响 `/admin`（文档已写明的已知边界）。
 - 未用真实账号验证新换号策略与 Gemini 代理通路（需要墙外出口与多个 Accio / Gemini 账号）。
 
-### 安装障碍与坑（本次实际踩到）
+### 安装说明
 
-**① npm 11 的 `allow-scripts` 会把 git 依赖的 `prepare` 打死。**
-本机 `~/.npmrc` 里有 `allow-scripts=true`，而 npm 11.16 的
-`resolveAllowScripts()` 对**项目内**安装会**直接抛错**
-（`EALLOWSCRIPTS: --allow-scripts is not allowed in project-scoped installs`）——
-它把这个配置当成了「命令行传 `--allow-scripts`」。更麻烦的是这条错误发生在
-**上游克隆目录里跑的第二次 npm**（`git dep preparation`），所以外层报的是
-`git dep preparation failed`，看起来像网络或上游的问题。
-
-绕过方式：给这条命令指定一个**不含 `allow-scripts` 的 userconfig**：
+**① npm 11 的 `allow-scripts` 可能导致 git 依赖安装失败。**
+若 `~/.npmrc` 里有 `allow-scripts=true`，npm 11 会报
+`EALLOWSCRIPTS: --allow-scripts is not allowed in project-scoped installs`，
+而外层显示为 `git dep preparation failed`。解决：删掉该行，或指定一个干净的 userconfig：
 
 ```bash
-npm install "dsh-codearts-auth@git+https://gitee.com/iJetLi/deepseek-harness-codearts.git#<commit>" \
-  --include=dev --no-audit --no-fund --userconfig /tmp/clean-npmrc   # 里面只留 registry
+npm install "dsh-codearts-auth@git+…#<commit>" --include=dev --no-audit --no-fund \
+  --userconfig /tmp/clean-npmrc   # 里面只留 registry
 ```
 
-清空 `NPM_CONFIG_ALLOW_SCRIPTS` 环境变量**无效**（配置来自 `~/.npmrc`，不是 env）。
-装完后 npm 会警告 `dsh-codearts-auth` 的 `prepare` 与 `esbuild` 的 `install` 脚本
-「not yet covered by allowScripts」—— **但这次构建成功了**，产物时间戳与内容都对得上；
-下次若真被拦住，按提示 `npm approve-scripts <pkg>` 或往 `package.json` 写
-`allowScripts` 字段。
+**② pnpm 11 的新包冷却期**：上游刚发布的包在 24 小时内会被拒装，
+需加前缀 `PNPM_CONFIG_MINIMUM_RELEASE_AGE=0`。
 
-**② `PNPM_CONFIG_MINIMUM_RELEASE_AGE=0` 这次仍要带**（pnpm 11 的新包冷却期，见上一条
-2026-10-18 记录），否则上游克隆目录里的 `pnpm install` 会因它锁文件里的 `0.2.1-rc.2`
-被拒。
-
-**③ 本机行尾漂移会让 `npm run format:check` 假红。**
-Git 的 `core.autocrlf=true` 把工作区若干文件检成了 **CRLF**，而 Prettier 默认
-`endOfLine: "lf"` ⇒ 这 6 个文件（`CHANGELOG.md` / `README.md` / `package.json` /
-`src/server.js` / `tests/admin-ui.test.mjs` / `tests/host.test.mjs`）在**升级前就是红的**，
-与本次升级无关。本次把这 11 个被检成 CRLF 的文件在工作区**统一转回 LF**
-（内容零变化，`git diff` 仍只有依赖两行），`format:check` 随即通过。
-提交内容不受影响（仓库存的是 LF），但**本机检出后**若再次变红，先查
-`git ls-files --eol | Select-String 'w/crlf'`，而不是去改代码。
+**③ 行尾差异**：Git 的 `core.autocrlf=true` 可能让 `npm run format:check` 报错，
+用 `git ls-files --eol` 检查并统一为 LF。
 
 </details>
 
@@ -252,7 +173,7 @@ Git 的 `core.autocrlf=true` 把工作区若干文件检成了 **CRLF**，而 Pr
   11128 / 11140 分类与按账号换号等多处修复。
 - 客户端多模式弹窗的 `select` 失效改为卡片单选组（覆盖 ZCode / Accio / AutoClaw）。
 
-### ⚠️ 安装障碍：pnpm 11 的「新包冷却期」（本次踩到）
+### ⚠️ 安装障碍：pnpm 11 的「新包冷却期」
 
 pnpm 11 默认拒绝安装**发布不足 24 小时**的包。上游把它刚发布的 `0.2.1-rc.2`
 写进了**自己的** `pnpm-lock.yaml`，而 npm 拉 git 依赖时会在克隆目录里跑上游的
@@ -263,7 +184,7 @@ The lockfile contains entries that the active policies reject.
 @deepseek-ai/dsh-llm@0.2.1-rc.2 was published at …, within the minimumReleaseAge cutoff
 ```
 
-逐项实测的放行方式（**只有这一种有效**）：
+放行方式对照（**只有环境变量有效**）：
 
 | 写法                                                          | 结果    |
 | ------------------------------------------------------------- | ------- |
@@ -677,7 +598,7 @@ The lockfile contains entries that the active policies reject.
 
 改动文件：`package.json`、`package-lock.json`。
 
-> ⚠️ **安装期间踩到一次偶发网络故障**（与上游无关）：官方源拉 `typescript` 时
+> ⚠️ **偶发网络故障**（与上游无关）：官方源拉 `typescript` 时
 > `ECONNRESET` 导致 `git dep preparation failed`。实测两源连通性均正常，
 > 换镜像重试即成功。锁文件里的镜像地址源自首个提交，本次仅 2 行 git commit 变更。
 
@@ -894,7 +815,7 @@ raccoon 图片能力白名单、badge 四处展示缺陷。
 > 💡 上游改了 35 个文件、+3883 行，本项目**一行代码都没动** —— 这就是
 > 「薄胶水 + 复用而非拷贝」的收益。
 
-> ⚠️ 第 5 步踩到一个**预期行为**：若本机 DSH 正在运行，它会占用插件网关的默认
+> ⚠️ **预期行为**：若本机 DSH 正在运行，它会占用插件网关的默认
 > 端口 `8326`，本仓库实例会记一条 `EADDRINUSE` 并**跳过网关启动**（管理界面与
 > 其它功能不受影响）。要同时跑，换个端口：
 > `DSH_OPENAI_GATEWAY_PORT=18432 npm start`。

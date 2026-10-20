@@ -156,9 +156,10 @@ const send = (response, status, body, headers = {}) => {
 const sendAdmin = (response, status, body, headers = {}) =>
   send(response, status, body, { ...SECURITY_HEADERS, ...headers })
 
-const sendAdminJson = (response, status, value) =>
+const sendAdminJson = (response, status, value, headers = {}) =>
   sendAdmin(response, status, JSON.stringify(value), {
     "content-type": "application/json; charset=utf-8",
+    ...headers,
   })
 
 /**
@@ -429,12 +430,18 @@ export function createHttpServer(host, options = {}) {
       sendAdmin(response, 302, "", { location: `${LOGIN_PATH}?next=${next}` })
       return
     }
-    sendAdminJson(response, 401, {
-      error: "unauthorized",
-      message:
-        "管理端需要鉴权：浏览器请打开 /admin 用管理密钥登录；脚本请带 Authorization: Bearer <admin-key>。" +
-        "密钥在 <CODEARTS2API_HOME>/admin-key，或由 CODEARTS2API_ADMIN_KEY 指定。",
-    })
+    sendAdminJson(
+      response,
+      401,
+      {
+        error: "unauthorized",
+        message:
+          "管理端需要鉴权：浏览器请打开 /admin 用管理密钥登录；脚本请带 Authorization: Bearer <admin-key>。" +
+          "密钥在 <CODEARTS2API_HOME>/admin-key，或由 CODEARTS2API_ADMIN_KEY 指定。",
+      },
+      // 点明认证方案：curl 这类客户端会据此提示，也便于确认「服务认得 Bearer」。
+      { "www-authenticate": 'Bearer realm="codearts2api admin"' },
+    )
   }
 
   /** 渲染登录页（可带错误提示）。 */
@@ -548,8 +555,24 @@ export function createHttpServer(host, options = {}) {
       }
 
       // ── OpenAI 兼容反代（默认开启；有自己的 Bearer 鉴权）──
-      if (proxyGateway && (path === "/v1" || path.startsWith("/v1/"))) {
+      const isV1 = path === "/v1" || path.startsWith("/v1/")
+      if (proxyGateway && isV1) {
         await proxyToGateway(request, response, url)
+        return
+      }
+      // 反代被显式关掉（`PROXY_GATEWAY=0`）时给一句能读懂的话，而不是裸 404：
+      // 端口开着、服务在跑、却只回 `{"error":"not found"}`，用户会去怀疑
+      // base_url / api_key / 客户端配置，而不是「有个环境变量把这条路关了」。
+      if (isV1) {
+        sendAdminJson(response, 404, {
+          error: {
+            message:
+              "/v1/* 在本端口不可用：已通过 PROXY_GATEWAY=0 关闭反代。" +
+              "请改为直连插件网关（默认 127.0.0.1:8326，地址见 /healthz），或去掉 PROXY_GATEWAY=0 后重启。",
+            type: "invalid_request_error",
+            code: "proxy_disabled",
+          },
+        })
         return
       }
 

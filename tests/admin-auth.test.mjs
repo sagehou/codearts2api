@@ -71,6 +71,12 @@ test("未登录时管理 RPC 回 401（而不是它的数据）", async (t) => {
   // 绝不能把 apiKey 之类的管理数据漏出来。
   assert.equal(body.result, undefined, "401 响应里不应含 rpc result")
   assert.doesNotMatch(JSON.stringify(body), /apiKey/, "401 响应不应含网关密钥字段")
+  // 点明认证方案，便于 curl 等客户端判断该怎么带凭据。
+  assert.match(
+    response.headers.get("www-authenticate") ?? "",
+    /^Bearer /,
+    "401 应带 WWW-Authenticate: Bearer（否则脚本不知道用什么方案）",
+  )
 })
 
 test("错误的管理密钥被拒绝，正确的被接受", async (t) => {
@@ -278,6 +284,44 @@ test("管理密钥文件自动生成且不入库（0600 权限）", async (t) =>
   const again = await startTestApp({ home: app.home, adminKey: "" })
   t.after(() => again.close())
   assert.equal(readFileSync(keyPath, "utf8").trim(), key, "重启不应更换密钥")
+})
+
+test("伪造 X-Forwarded-For 无法绕过登录限速", async (t) => {
+  const app = await startTestApp()
+  t.after(() => app.close())
+
+  // 每个请求换一个伪造的 XFF。若服务采信这个头，每次都是「新 IP」，
+  // 限速永远触发不了。服务按 TCP 对端计，所以第 11 次必然被挡。
+  let sawThrottle = false
+  for (let i = 0; i < 14; i += 1) {
+    const response = await fetch(`${app.origin}/admin/login`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        accept: "text/html",
+        "x-forwarded-for": `203.0.113.${i}`,
+      },
+      body: new URLSearchParams({ key: `wrong-${i}`, next: "/admin" }),
+    })
+    if (/尝试过于频繁/.test(await response.text())) {
+      sawThrottle = true
+      break
+    }
+  }
+  assert.ok(sawThrottle, "换 X-Forwarded-For 不应绕过限速（该头不可信）")
+})
+
+test("PROXY_GATEWAY=0 时 /v1/* 回可读的 proxy_disabled 而不是裸 404", async (t) => {
+  const app = await startTestApp({ proxyGateway: false })
+  t.after(() => app.close())
+
+  const response = await fetch(`${app.origin}/v1/models`, {
+    headers: { accept: "*/*", authorization: "Bearer whatever" },
+  })
+  assert.equal(response.status, 404)
+  const body = await response.json()
+  assert.equal(body.error.code, "proxy_disabled", "应明确告知是反代被关，而非资源不存在")
+  assert.match(body.error.message, /PROXY_GATEWAY/, "错误信息应点出对应的环境变量")
 })
 
 test("CODEARTS2API_ADMIN_AUTH=0 可关闭鉴权（本机开发用）", async (t) => {

@@ -98,7 +98,7 @@ npm start            # 默认 http://127.0.0.1:8080/admin
 > ```
 >
 > 放行办法（**只有环境变量能穿透**，`.npmrc` 里写 `minimum-release-age` 无效、
-> `npm_config_*` 也无效 —— 均已实测）：
+> `npm_config_*` 也无效）：
 >
 > ```bash
 > PNPM_CONFIG_MINIMUM_RELEASE_AGE=0 npm install --include=dev
@@ -117,7 +117,7 @@ npm start            # 默认 http://127.0.0.1:8080/admin
 | `HOST`                       | `0.0.0.0`         | 监听地址                                                                          |
 | `PROXY_GATEWAY`              | **开**            | 把 `/v1/*` 反代到插件网关；置 `0/false/off/no` 关闭（直连 `8326` 仍可用）         |
 | `CODEARTS2API_ADMIN_KEY`     | 自动生成          | **管理后台访问密钥**（与网关 Key 是两把，见[管理端鉴权](#管理端鉴权)）            |
-| `CODEARTS2API_ADMIN_AUTH`    | **开**            | 置 `0` **关闭**管理端鉴权（仅本机调试；启动日志会显著告警）                       |
+| `CODEARTS2API_ADMIN_AUTH`    | **开**            | 置 `0` **关闭**管理端鉴权（仅限本机；启动日志会显著告警）                         |
 | `DSH_OPENAI_GATEWAY_PORT`    | `8326`            | 插件网关端口（只绑 `127.0.0.1`，见下）                                            |
 | `DSH_OPENAI_GATEWAY_ENABLED` | `1`               | 置 `0/false/off/no` 则**强制停用**网关（面板开关会显示被 env 阻止，且无法再打开） |
 | `DSH_OPENAI_GATEWAY_API_KEY` | 自动生成          | 网关 Bearer Key，优先于文件                                                       |
@@ -155,7 +155,7 @@ chmod 600 ~/.codearts2api/.credentials.yaml      # 权限校验要求，否则�
 
 ### 管理端鉴权
 
-**从 2026-10-20 起，公网部署不需要再配 nginx 做访问控制** —— 服务自带登录页。
+公网部署不需要再配 nginx 做访问控制，服务自带登录页。
 
 首次启动会自动生成一把管理密钥到 `<CODEARTS2API_HOME>/admin-key`（权限 `0600`），
 并**只在生成那一次**打印到日志：
@@ -175,8 +175,8 @@ chmod 600 ~/.codearts2api/.credentials.yaml      # 权限校验要求，否则�
 > | **管理密钥**（`admin-key`）              | `<home>/admin-key`              | **只有你自己**             | 进后台、改配置、导出全部账号凭据 |
 > | **网关 Key**（`openai-gateway/api-key`） | `<home>/openai-gateway/api-key` | **调用方**（客户端、朋友） | 只能调 `/v1/*` 推理接口          |
 >
-> 这两把**故意不共用**。早先的实现（参考 workbuddy2api-panel）是共用一把 `api_key`，
-> 但那样你一旦把网关 Key 发给别人，对方就能直接进你的后台 —— 权限等级差了一个数量级。
+> 管理密钥能导出全部账号凭据，网关 Key 只能调推理接口。两把分开，才能放心把
+> 网关 Key 发给别人。
 
 **脚本 / curl**：带 `Authorization: Bearer <admin-key>` 即可，不需要走登录页：
 
@@ -202,7 +202,7 @@ curl -s -X POST http://127.0.0.1:8080/api/jet-hub \
 **忘记密钥**：删掉 `<home>/admin-key` 重启即可重新生成（届时需重新登录）；
 或用 `CODEARTS2API_ADMIN_KEY` 环境变量指定。
 
-**关闭鉴权**（仅本机调试）：`CODEARTS2API_ADMIN_AUTH=0`。启动日志会打一条醒目告警，
+**关闭登录**（仅限本机）：`CODEARTS2API_ADMIN_AUTH=0`。启动日志会打一条醒目告警，
 `/healthz` 也会回显 `adminAuth: false`，便于运维发现。
 
 #### 关于 TLS
@@ -218,9 +218,8 @@ curl -s -X POST http://127.0.0.1:8080/api/jet-hub \
    ```
 2. 或直接用 **Cloudflare Tunnel / Tailscale** 这类隧道（不用自己签证书）。
 
-> 会话 Cookie 的 `Secure` 标志**只在检测到 HTTPS 时才加**（含 `X-Forwarded-Proto`）。
-> 刻意不默认开启：否则按 README 直连 `http://ip:8080` 时浏览器会**静默不存**这个
-> Cookie，表现为「密码明明输对了，却一直让我重新登录」。
+> 会话 Cookie 的 `Secure` 标志只在服务自身以 HTTPS 启动时才加。这样按
+> `http://ip:8080` 直连时 Cookie 一定存得下，不会出现「密钥输对了却一直要求重新登录」。
 
 ### 管理界面
 
@@ -293,10 +292,10 @@ docker run -d --name codearts2api \
 
 `CODEARTS2API_HOME=/data` 已由镜像设好并声明为 `VOLUME`；**不挂卷则容器重建后账号会丢**。
 
-> ✅ **管理接口自带鉴权**（2026-10-20 起），`-p 8080:8080` 不再是「把后台裸奔到公网」。
-> 首次启动自动生成管理密钥到 `/data/admin-key`，打开 `/admin` 用登录页进入即可 ——
+> ✅ **管理接口自带鉴权**，`-p 8080:8080` 不会把后台暴露给公网。
+> 首次启动自动生成管理密钥到 `/data/admin-key`，打开 `/admin` 用登录页进入即可，
 > **不需要**配 nginx Basic Auth / OAuth / IP 白名单。详见[管理端鉴权](#管理端鉴权)。
-> 唯一还需要额外做的是 TLS（见下），否则密钥与对话内容在链路上是明文。
+> 仍需自行解决 TLS（见下），否则密钥与对话内容在链路上是明文。
 
 查看自动生成的管理密钥：
 
@@ -307,18 +306,13 @@ docker exec codearts2api cat /data/admin-key
 > 想固定一把（比如写进密码管理器）就加 `-e CODEARTS2API_ADMIN_KEY=你的密钥`，
 > 此后不再生成文件。⚠️ 别把它写进公开的 compose / 脚本里。
 
-#### `PROXY_GATEWAY` 默认已开启
+#### `PROXY_GATEWAY` 默认开启
 
 插件网关的监听地址在上游是**硬编码**的 `127.0.0.1`（`DEFAULT_GATEWAY_HOST` 不可经环境
 变量修改 —— 那是上游刻意的安全边界，避免被误暴露成公网服务）。所以容器外**无法**直接
 访问 `8326`。本服务因此**默认**把 `/v1/*` 透明转发到回环上的网关，对外只需暴露 8080。
 
-> 初版需要显式 `PROXY_GATEWAY=1`，那是个部署陷阱：忘了设就表现为「服务起来了但
-> `/v1/*` 全 404」，而 404 完全不像配置问题。现已改为**默认开启**，要关才设 `PROXY_GATEWAY=0`
-> （关掉后网关照旧监听 8326，本机开发可直连）。
->
-> Dockerfile 里仍显式写了 `ENV PROXY_GATEWAY=1`，那是给「默认值将来再变」留的冗余，
-> 不是必需项。
+需要关闭时设 `PROXY_GATEWAY=0`（网关照旧监听 8326，仍可直连）。
 
 反代**不碰 `Authorization`**：客户端仍须带网关的 Bearer Key，鉴权判定权始终只在插件
 网关一处，不存在两套鉴权。
@@ -346,9 +340,8 @@ server {
 }
 ```
 
-> 若确实在反代后面，请**设置 `X-Forwarded-Proto: https`**（Nginx 用
-> `proxy_set_header X-Forwarded-Proto $scheme;`）—— 本服务据此决定要不要给会话
-> Cookie 加 `Secure`。不设也能用，只是 Cookie 不会带上 `Secure` 标志。
+> 反代挂在前面时，登录限速会按反代自己的地址统一计算（因为服务只认 TCP 对端地址），
+> 粒度会变粗。
 
 ## 安全边界
 
@@ -359,7 +352,7 @@ server {
    - 浏览器侧用 **HttpOnly 会话 Cookie**（XSS 拿不到），令牌是 `HMAC(admin-key, 常量)`，
      不是明文密钥 —— 拿到 Cookie 也推不回密钥；
    - 登录失败按来源 IP 限速（10 次 / 10 分钟）；
-   - 想彻底关掉（**仅本机调试**）：`CODEARTS2API_ADMIN_AUTH=0`，启动日志会告警。
+   - 想关闭登录（**仅限本机**）：`CODEARTS2API_ADMIN_AUTH=0`，启动日志会告警。
 2. **网关密钥**以明文存在 `<CODEARTS2API_HOME>/openai-gateway/api-key`（`0600`）。
    文件被改坏时上游会**明确报错**而不是悄悄换一个 —— 因为静默换钥会让所有已配置的
    客户端同时 401。恢复办法：删掉该文件重启（会重建），或改用
@@ -463,7 +456,7 @@ npm start
 ⚠️ 与宿主 DSH 的差异（重要）：上游 README 说宿主 dsh 会在**第一个插件加载前**装全局代理
 分发器，因此导出 env 就能覆盖插件的全部请求。**本项目不是 dsh 宿主**，没有那层分发器；
 只有 Node 24+ 带 `NODE_USE_ENV_PROXY=1` 时，内置 `fetch` 才读 `HTTPS_PROXY`（本机在
-Node 24.18 上实测：不加该变量 → 直连；加了 → 走代理并因代理不可用报 `ECONNREFUSED`）。
+只有 Node 24+ 带 `NODE_USE_ENV_PROXY=1` 时，内置 `fetch` 才读 `HTTPS_PROXY`。
 所以在本项目里 **② 依赖 Node 版本 + 该变量**，稳妥做法仍是 ①。
 
 **报错文案**：连不上时插件会明确提示「疑似需要代理」并带上根因码
@@ -589,7 +582,7 @@ git 依赖引入。
 | `react`、`react-dom`                                                                              | `devDependencies` | 只在构建期作为输入被读取；产物已内联 |
 | `jsdom`                                                                                           | `devDependencies` | 只在 `npm test` 里模拟浏览器 DOM     |
 
-> ⚠️ 唯一的坑：`npm run build` **需要** devDependencies。若构建环境设了
+> ⚠️ 注意：`npm run build` **需要** devDependencies。若构建环境设了
 > `NODE_ENV=production`，`npm install` 会默认跳过它们、构建直接失败 —— 故 Dockerfile 里
 > 显式写了 `npm install --include=dev`。
 
@@ -616,7 +609,7 @@ npm run format:check  # Prettier 只检查（CI 用）
   会被**静默跳过**（不报错也不检查）。
 - **Node 与浏览器端分别配置 globals**：`src/`、`tests/` 用 `globals.node`；
   `web/admin.jsx` 用 `globals.browser`。
-- **`public/admin.html` 不排除** —— 它是手写源码（已实测：格式化后 `<script>` 的加载
+- **`public/admin.html` 不排除** —— 它是手写源码（格式化后 `<script>` 的加载顺序不变，`/admin` 仍正常渲染）。
   顺序不变，`/admin` 仍正常渲染）。
 
 > ⚠️ 两个产物由 `npm run build` 生成，被 `.gitignore` 与 `.prettierignore` 双重排除。
@@ -654,8 +647,7 @@ CHANGELOG.md       变更记录（新的在最前面）
 
 ## 变更记录与升级
 
-历次变更记在 [`CHANGELOG.md`](CHANGELOG.md)（**新的在最前面**）—— 上游每个版本改了什么、
-本仓库验证结果、以及踩到的坑。本节说明它的组织方式、与上游的耦合面，以及升级流程。
+历次变更记在 [`CHANGELOG.md`](CHANGELOG.md)（**新的在最前面**）—— 上游每个版本改了什么、本仓库验证结果。本节说明它的组织方式、与上游的耦合面，以及升级流程。
 
 「上游升级」条目记录的是 [`deepseek-harness-codearts`](https://gitee.com/iJetLi/deepseek-harness-codearts)
 依赖的更新。本项目的核心特色是**薄胶水** —— 上游改业务逻辑时我们通常 **0 行代码改动**，
@@ -716,11 +708,11 @@ npm install "dsh-codearts-auth@git+https://gitee.com/iJetLi/deepseek-harness-cod
   --include=dev --no-audit --no-fund
 ```
 
-> ⚠️ **必须用上面的写法（带包名与 `@` spec）。** 实测过：`package-lock.json` 里记着旧
-> commit 的 `resolved`，只改 `package.json` 再 `npm install` 会**静默沿用 lock 里的旧
-> commit**（只输出 `added 1 package`、不报错），你以为升级了其实没有。
+> ⚠️ **必须用上面的写法（带包名与 `@` spec）。** `package-lock.json` 里记着旧 commit 的
+> `resolved`，只改 `package.json` 再 `npm install` 会**静默沿用 lock 里的旧 commit**
+> （只输出 `added 1 package`、不报错），看起来升级了、实际没有。
 >
-> 已踩坑的话，两个文件都改成新 commit 后 `rm -rf node_modules/dsh-codearts-auth && npm install`。
+> 若已发生这种情况，两个文件都改成新 commit 后 `rm -rf node_modules/dsh-codearts-auth && npm install`。
 > 升级后务必核对：`node -e "console.log(require('./package-lock.json').packages['node_modules/dsh-codearts-auth'].resolved)"`
 
 `npm install` 会重新 clone 上游并跑它的 `prepare`（`pnpm build:all`）现场编译 `lib/` ——
@@ -728,7 +720,7 @@ npm install "dsh-codearts-auth@git+https://gitee.com/iJetLi/deepseek-harness-cod
 
 > ⚠️ 上游若刚发布了新版 DSH 基础包，pnpm 11 的**新包冷却期**（默认 24 小时）会拒绝
 > 安装它自己锁文件里的那些包。此时加前缀：
-> `PNPM_CONFIG_MINIMUM_RELEASE_AGE=0 npm install …`（原理与实测见
+> `PNPM_CONFIG_MINIMUM_RELEASE_AGE=0 npm install …`（说明见
 > [快速开始](#快速开始) 的同名提示）。
 
 > ⚠️ **npm 11 的 `allow-scripts` 可能让这条命令在「git dep preparation」阶段失败**
