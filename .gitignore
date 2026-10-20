@@ -13,13 +13,16 @@ public/upstream-jet-hub.js
 
 # ── 运行时状态（切勿入库：含账号索引与凭据）──
 # 默认状态目录在 ~/.codearts2api，但如果有人把 CODEARTS2API_HOME 指到仓库内，
-# 这几条能兜住账号池 / 凭据 / 网关密钥。
+# 这几条能兜住账号池 / 凭据 / 网关密钥 / 管理密钥。
 /data
 .codearts2api/
 .credentials.yaml
 openai-gateway/
 jet-hub/
 attachments/
+# 管理后台的登录密钥：拿到它就能进后台、导出全部账号、明文取回网关 Key
+admin-key
+admin-key.*.tmp
 
 # DSH 的存储（本程序不读写它，但排除以防误提交）
 .dsh/

@@ -48,35 +48,61 @@ function resolveHost(env = process.env) {
 /**
  * 是否把 `/v1/*` 反代到插件网关。
  *
- * 默认关闭（本机开发直连 8326 更直观）。容器部署必须开启 —— 插件网关的
- * 监听地址被上游硬编码为 `127.0.0.1`，容器外无法直达，只能经本服务转发。
- * 见 `server.js` 的模块头。
+ * **默认开启**（2026-10-20 起）。初版是默认关闭、要 `PROXY_GATEWAY=1` 显式打开，
+ * 理由是「本机开发直连 8326 更直观」。实测这个默认值是个部署陷阱：容器里忘了设
+ * 就表现为「服务起来了但 `/v1/*` 全部 404」，而 404 完全不像配置问题，用户会先去
+ * 怀疑客户端的 base_url / api_key。
+ *
+ * 改成默认开启不损失什么 —— 网关自己照旧监听 8326，本机开发仍可直连。
+ * 需要关掉时显式设 `PROXY_GATEWAY=0`。
  */
 function resolveProxyGateway(env = process.env) {
   const raw = env.PROXY_GATEWAY?.trim().toLowerCase()
-  return raw === "1" || raw === "true" || raw === "on" || raw === "yes"
+  // 未设置（undefined）或空串 ⇒ 开启；只有明确的否定词才关闭。
+  if (raw === undefined || raw === "") return true
+  return !["0", "false", "off", "no"].includes(raw)
+}
+
+/**
+ * 是否启用管理端鉴权。
+ *
+ * **默认开启**，且只提供「关闭」这一个例外 —— 安全性应该是默认值，
+ * 「方便」才该是被显式声明的那个。
+ *
+ * `CODEARTS2API_ADMIN_AUTH=0` 只用于本机开发调试：它会让 `/admin` 与
+ * `/api/jet-hub` 对任何能访问该端口的人开放（启动日志会显著告警）。
+ */
+function resolveAdminAuth(env = process.env) {
+  const raw = env.CODEARTS2API_ADMIN_AUTH?.trim().toLowerCase()
+  if (raw === undefined || raw === "") return true
+  return !["0", "false", "off", "no"].includes(raw)
 }
 
 const host = await createHost()
 const port = resolvePort()
 const bind = resolveHost()
 const proxyGateway = resolveProxyGateway()
+const adminAuth = resolveAdminAuth()
 
-const server = createHttpServer(host, { logger: console, proxyGateway })
+const server = createHttpServer(host, { logger: console, proxyGateway, adminAuth })
 await new Promise((resolve, reject) => {
   server.once("error", reject)
   server.once("listening", resolve)
   server.listen(port, bind)
 })
 
-console.log(`[codearts2api] 管理界面 http://${bind === "0.0.0.0" ? "127.0.0.1" : bind}:${port}/admin`)
+const shown = bind === "0.0.0.0" ? "127.0.0.1" : bind
+console.log(`[codearts2api] 管理界面 http://${shown}:${port}/admin`)
 console.log(`[codearts2api] state home: ${host.home}`)
 console.log(`[codearts2api] 已注册路由: ${[...host.routes.keys()].join(", ") || "（无）"}`)
-if (proxyGateway) console.log(`[codearts2api] /v1/* 已反代到本机插件网关`)
-else
-  console.log(
-    `[codearts2api] OpenAI 接口请直连插件网关（默认 127.0.0.1:8326，见 /healthz）；如需经本端口访问请设 PROXY_GATEWAY=1`,
+if (proxyGateway) console.log(`[codearts2api] /v1/* 已反代到本机插件网关（PROXY_GATEWAY=0 可关闭）`)
+else console.log(`[codearts2api] PROXY_GATEWAY=0：本端口不提供 /v1/*，请直连插件网关（默认 127.0.0.1:8326）`)
+if (!adminAuth) {
+  console.warn(
+    "[codearts2api] ⚠️ CODEARTS2API_ADMIN_AUTH=0：管理端鉴权已关闭，/admin 与 /api/jet-hub 无任何保护。" +
+      "只应在本机调试时这样用。",
   )
+}
 
 let shuttingDown = false
 async function shutdown(signal) {

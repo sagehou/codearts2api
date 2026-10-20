@@ -7,6 +7,145 @@
 ---
 
 <details open>
+<summary><b>2026-10-20 · 管理端鉴权（公网部署不再需要反代做访问控制）+ <code>PROXY_GATEWAY</code> 默认开启</b></summary>
+
+响应 [issue #2「公网部署建议」](https://github.com/zhuweiyou/codearts2api/issues/2)：
+使用者要部署到公网服务器，但「加安全很麻烦，小白不太懂」，希望部署后自带验证。
+
+### 问题
+
+`/admin`、`/admin.js`、`/api/jet-hub` 此前**全部无鉴权**，而 `/api/jet-hub` 的
+`backup.export` 能导出**全部账号凭据**、`gateway.getEnabled` 能**明文取回网关 Key**。
+也就是说「公网可达」等于「账号全送」—— 唯一的补救是让用户去配 nginx Basic Auth，
+正是 issue 里说的那个门槛。
+
+### 新增：独立的管理密钥 + 登录页
+
+- **新增 `src/admin-auth.js`**：密钥生成/读取、常量时间校验、会话令牌、登录限速。
+- **新增 `src/admin-login-page.js`**：服务端渲染的登录表单（不依赖前端 JS）。
+- 首次启动生成 `<home>/admin-key`（`0600`，日志**只打一次**），也可用
+  `CODEARTS2API_ADMIN_KEY` 指定。
+- 浏览器：登录后下发 **HttpOnly 会话 Cookie**（`SameSite=Lax`，30 天）。
+  令牌是 `HMAC(admin-key, 常量)` —— 不可伪造、不泄露密钥、换钥即全体失效。
+- 脚本：仍接受 `Authorization: Bearer <admin-key>`，curl / 监控不受影响。
+- 登录失败按来源 IP 限速（10 次 / 10 分钟），且**限速期间正确密钥也被挡**
+  （否则「猜对一次」就能绕过）。
+- `CODEARTS2API_ADMIN_AUTH=0` 可关闭（本机调试），启动日志与 `/healthz` 都会如实反映。
+
+### 为什么**不**复用网关的 `api-key`
+
+网关 Key 是**发给调用方**的（填进别人的客户端），管理权限不能跟着走 —— 否则
+「给了朋友 API Key」等于「给了朋友后台」。参考实现（workbuddy2api-panel）共用一把，
+本项目改为**分开**。
+
+### 默认拒绝的白名单
+
+| 路径                                                                                                          | 处理                                                               |
+| ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `/`、`/admin`、`/admin/`、`/admin.css`、`/admin-boot.js`、`/admin.js`、`/upstream-jet-hub.js`、`/api/jet-hub` | **拦截**                                                           |
+| `/healthz`                                                                                                    | 放行（不含密钥，监控用）                                           |
+| `/v1/*`                                                                                                       | 放行（插件网关自己的 Bearer，判定权只在一处）                      |
+| `/api/jet-hub/captcha-carrier`                                                                                | 放行（页面无秘密 + 要被 `<webview>` 直接导航，加鉴权会废掉 zcode） |
+
+写成「默认拦截 + 显式放行」而不是逐条列举：黑名单的失效方式是**静默**的
+（新加一个静态文件自动变公开），白名单的失效方式是**显式**的（立刻有人报障）。
+
+### 安全响应头
+
+管理相关响应统一带 CSP（`default-src 'none'` / `script-src 'self'` /
+`frame-ancestors 'none'`）、`X-Frame-Options: DENY`、`nosniff`、`Referrer-Policy`。
+
+为此把 `admin.html` 的**内联 `<style>` 与内联 `<script>` 拆成外部文件**
+（`public/admin.css`、`public/admin-boot.js`）—— 否则 `script-src 'self'` 会拦掉
+那个定义 `__ModuleLoader__` 的垫片，表现为整页白屏。
+
+> ⚠️ `style-src` 仍保留 `'unsafe-inline'`：上游 UI 用 React 的 `style={{…}}`，
+> 那是元素 style 属性（归 `style-src-attr`），CSS 的 `'unsafe-inline'` 覆盖不了它。
+> `img-src` 也要 `blob:`（上游导出 CSV/JSON 时用 `URL.createObjectURL`）。
+
+### `PROXY_GATEWAY` 改为默认开启
+
+初版要显式 `PROXY_GATEWAY=1`，那是个部署陷阱：容器里忘了设就表现为「服务起来了但
+`/v1/*` 全 404」，而 404 完全不像配置问题。现在默认开，要关才设 `PROXY_GATEWAY=0`
+（网关照旧监听 8326，本机开发可直连）。
+
+### 验证
+
+- 新增 `tests/admin-auth.test.mjs`（11 条）：拦截清单（含根路径 `/`）、401 形态、
+  放行清单、登录换 Cookie、伪造 Cookie、限速、开放重定向、安全响应头、密钥文件
+  生成与复用、`ADMIN_AUTH=0` 关闭路径。
+- `npm test` **33/33 通过**（含既有的 `/admin` 渲染端到端用例 —— 它现在也顺带验证了
+  「拆出去的 `admin-boot.js` 真的能定义 `__ModuleLoader__`」）。
+- `eslint` 与 `prettier --check` 全绿。
+
+</details>
+
+<details>
+<summary><b>2026-10-20 · 上游升级到 <code>b5dab83</code>（新增 AStudio + 模型目录刷新器）</b></summary>
+
+依赖从 `82da5df88e90b831a833011b4ce506a934fdb1bc` 更新到
+`b5dab839fe04d3a05a331c4a7d6b073a876c71f3`。版本号仍是 **0.2.1-rc.2**、`peerDependencies`
+与 `dependencies` **一字未改**（上游这次纯发 commit），所以 `@deepseek-ai/dsh-*` 基础包
+照旧，本仓库无需换 peer，也无需在 `src/host.js` 里补任何服务。
+
+### 上游变化（43 个 commit，+10627/−184）
+
+- **新增 AStudio（讯飞 astronautStudio）渠道** —— 第 20 个渠道。它**没有 OAuth**：登录靠
+  **导入本机桌面端已登录的会话文件**
+  （`%LOCALAPPDATA%\Programs\AStudio Data\userdata\astron-session.json`，可用
+  `DSH_ASTUDIO_SESSION_FILE` 覆盖）。三处协议事实与本插件其它家都不同：推理基址在
+  `/model-gateway/v1` 而目录在 `/api/v1/model-manager`（拼 `/v1/models` 恒 404）、推理端点
+  **只认裸 slug**（填 `builtin/<base64>` 回 502 `model_not_found`）、失败有两种信封
+  （目录面是 HTTP 200 + `code !== 0`）。⚠️ 因为默认路径读 `LOCALAPPDATA`，
+  **远程/容器部署看不到本机会话**，需要用「打开认证页」或 env 指路径（已写进 README）。
+- **模型目录 20 分钟 TTL + 后台刷新器**：新增 `isCatalogFresh` 作**唯一**新鲜度判据，
+  A 类四家（loomy / minimax / zcode / raccoon）与 B 类四家 + officeace + astudio 全部接入，
+  `be42b25` 遗留的「刷新器拿不到各家 `refresh`」由 `3186eaf` 补了 12 家转发 +
+  参与度检测（否则刷新器**空转**）。用户改设置时立即失效缓存。对本项目的意义：
+  `/v1/models` 不再每次都等上游拉目录（`a80ab4a` 实测旧路径卡 7 秒，
+  `a4765aa` 实测 `resolveModel` 阻塞 70 秒），**网关首轮响应明显变快**。
+- **共享余额读数改为 stale-while-revalidate**：先回旧值、后台定时保鲜，面板打开更快。
+- **聚合路由**：取消请求不再被折算成 `UNUSABLE`（此前取消一次 = 该渠道消失 60 秒）；
+  目录缓存判据并入 `isCatalogFresh`，消掉第二份实现；复审修掉 3 Critical + 2 Important。
+- **TRAE 签到收尾参与 1024 打卡抽奖**（`trae-lottery.ts`，454 行用例）。
+- **CodeArts**：补 `refresh` 寿命腿（30 天硬上限导致的续期漏窗 + `refreshable` 永真）；
+  APIG 瞬时签名故障改为**有界重发** + abort 守卫。
+- **AutoClaw**：`access_token` 死线改以 **JWT exp** 为准（删掉编造的 7 天，IKOYEG）；
+  非法思考档位本地拦截，避免按最贵档静默计费。
+- **登录失败文案**： 「未开通」类失败不再拼「请重新点击「+ 新建账号」」这条**假出路**。
+
+### 本仓库改动与验证
+
+- `package.json` / `package-lock.json` 各一处依赖行。
+- **测试期望是本次唯一需要动的代码**（这正是「新增渠道 0 行」那条承诺的兑现方式）：
+  `tests/host.test.mjs` 的 `EXPECTED_PROVIDERS` 加 `"astudio"`（位置在 `accio` 之后、
+  `modelscope` 之前 —— 由实际注册序实测得到，不是照注册表抄）；`tests/admin-ui.test.mjs`
+  导航断言加 `AStudio`，总数 20 → **21**（20 渠道 + 1 聚合）。
+- 渠道数文案 19 → **20**（README 三处 + 测试注释两处）。
+- `npm run build` 重建产物（`public/upstream-jet-hub.js` 含 34 处 `astudio`）。
+- `npm test` **22/22 通过**；`npm run lint`、`npm run format:check` 通过；
+  `npm start` 契约核对行正常，`/healthz` 的 `providers` 实测为 20 渠道 + `aggregate` +
+  `jet-hub-auto`。
+- **产品代码 0 行改动**。未用真实账号验证 AStudio 链路（需要本机装桌面端并扫码）与
+  TRAE 抽奖（需要真机签到）。
+
+### 坑
+
+**① 同上次：npm 11 `allow-scripts` + pnpm 新包冷却期**，命令仍需
+`--userconfig <干净 npmrc>` 与 `PNPM_CONFIG_MINIMUM_RELEASE_AGE=0`（详见上一条）。
+本次还额外撞了一次 `ECONNRESET`（拉 `undici` 时），原样重试即过 —— 不需要改配置。
+
+**② `EXPECTED_PROVIDERS` 的顺序只能靠实测。** 上游 `provider-registry.ts` 的声明顺序与
+`index.ts` 的**适配器注册顺序不同**，而断言比的是后者。快速拿真值：
+
+```bash
+node -e "import('./tests/helpers.mjs').then(async h=>{const a=await h.startTestApp();
+console.log(JSON.stringify(a.host.ctx.get('llm').listProviders().map(e=>e.id)));await a.close();process.exit(0)})"
+```
+
+</details>
+
+<details>
 <summary><b>2026-10-19 · 上游升级到 <code>82da5df</code>（Accio 请求级换号 + Gemini 出口代理）</b></summary>
 
 依赖从 `b0a6409e96181943672c6a65c549964ed50a56be` 更新到

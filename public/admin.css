@@ -1,0 +1,40 @@
+/**
+ * `/admin` 的页面外壳样式。
+ *
+ * 从 `admin.html` 的内联 `<style>` 抽出来 —— 内联版本会被服务端的
+ * `style-src 'self'` CSP 拦掉（CSP 不区分「我们写的内联」和「攻击者注入的内联」）。
+ *
+ * 这里只做**页面级的外壳复位**，让上游的 `.dim-jh-page` 能撑满视口。
+ * 界面自身的视觉全部来自上游 `installJetHubStyles()` 运行时注入的那份样式 ——
+ * 本文件刻意不碰任何上游类名，否则上游改版时这里就成了第二份真相。
+ */
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--dsw-alias-bg-layer-1, #f5f6f8);
+}
+
+#admin-root {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+#admin-root > .dim-jh-page {
+  flex: 1;
+  min-height: 0;
+}
+
+.boot {
+  padding: 24px;
+  font:
+    13px/1.6 ui-monospace,
+    monospace;
+  color: #555;
+}

@@ -56,11 +56,11 @@ async function chat(origin, body, key, signal) {
   return { status: response.status, body: await response.json() }
 }
 
-/** 取网关 Key。 */
-async function gatewayKey(origin) {
+/** 取网关 Key（管理端鉴权是产品默认，必须带管理密钥）。 */
+async function gatewayKey(origin, adminKey) {
   const response = await fetch(`${origin}/api/jet-hub`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", authorization: `Bearer ${adminKey}` },
     body: JSON.stringify({
       type: "client-request",
       rpcId: "key",
@@ -135,7 +135,7 @@ test("媒体类型按字节硬校验：声明与实际不符应被拒", async (t
 test("网关收到 http(s) 图片链接时明确拒绝（防 SSRF）", async (t) => {
   const app = await startTestApp()
   t.after(() => app.close())
-  const key = await gatewayKey(app.origin)
+  const key = await gatewayKey(app.origin, app.adminKey)
 
   const { body } = await chat(
     app.origin,
@@ -152,7 +152,7 @@ test("网关收到 http(s) 图片链接时明确拒绝（防 SSRF）", async (t)
 test("网关收到损坏的图片数据时报可读错误，而不是崩溃", async (t) => {
   const app = await startTestApp()
   t.after(() => app.close())
-  const key = await gatewayKey(app.origin)
+  const key = await gatewayKey(app.origin, app.adminKey)
 
   const { body } = await chat(
     app.origin,

@@ -56,6 +56,20 @@ export default [
     },
   },
   {
+    // 手写的**浏览器端**普通脚本（不是构建产物，所以要检查；但它跑在浏览器里）。
+    //
+    // ⚠️ `public/admin-boot.js` 必须在 Node 端规则**之后**声明：上面那条
+    //    `files: ["**/*.js"]` 会先匹配到它并塞进 `globals.node`，而这条后置的
+    //    配置才能把 `window` 补上（flat config 是「后者覆盖前者」的合并顺序）。
+    //    `public/admin.js` 与 `upstream-jet-hub.js` 是构建产物，已在 ignores 里。
+    files: ["public/**/*.js"],
+    languageOptions: {
+      ecmaVersion: "latest",
+      sourceType: "script",
+      globals: { ...globals.browser },
+    },
+  },
+  {
     // 测试与被引用的入口里，有些变量只能靠约定（如 `_unused` 前缀）。
     // 与 oc2api 不同的是本项目有测试目录，故单独放宽几条。
     files: ["tests/**/*.mjs"],

@@ -18,11 +18,21 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 /**
+ * 测试用的管理密钥（固定值，便于断言）。
+ *
+ * ⚠️ **必须**显式给：管理端鉴权默认开启，不给的话 `startTestApp` 会去
+ * `<home>/admin-key` 生成一把随机密钥，测试就只能「先读文件再拼头」绕一圈。
+ * 固定值让每个用例都能直接拼 `Authorization: Bearer …`，也顺带证明了
+ * `adminKey` 注入这条路径可用。
+ */
+export const TEST_ADMIN_KEY = "test-admin-key-0123456789"
+
+/**
  * 起一个测试用实例。
  *
- * @param options - `{ home, gatewayEnabled, proxyGateway }`。
+ * @param options - `{ home, gatewayEnabled, proxyGateway, adminKey, adminAuth }`。
  *   `home` 用于「预置好凭据/账号再启动」的用例；省略则新建临时目录。
- * @returns `{ host, server, origin, home, close }`。
+ * @returns `{ host, server, origin, home, adminKey, close }`。
  */
 export async function startTestApp(options = {}) {
   const home = options.home ?? mkdtempSync(join(tmpdir(), "c2a-test-"))
@@ -36,7 +46,15 @@ export async function startTestApp(options = {}) {
   else delete process.env.DSH_OPENAI_GATEWAY_ENABLED
   // 测试默认开启反代：这样网关相关的断言可以只经一个端口完成，
   // 与容器部署的形态一致（也更接近用户实际会怎么用）。
+  // ⚠️ 现在它已经是**产品默认**，但测试仍显式设置：这条断言要守住的是
+  //    「显式值被正确解析」，而不是「默认值碰巧对」。
   process.env.PROXY_GATEWAY = options.proxyGateway === false ? "0" : "1"
+
+  // ⚠️ 用 `in` 判断「是否显式传了」，而不是 `??`：测试需要能显式传 `adminKey: ""`
+  //    表达「不要注入，让服务自己从 `<home>/admin-key` 生成」—— 那正是生产路径。
+  //    写成 `options.adminKey ?? TEST_ADMIN_KEY` 时空串会被当成有效值传下去，
+  //    于是 `createHttpServer` 收到 `""` 而不去生成文件，测试测的就不是生产路径了。
+  const adminKey = "adminKey" in options ? options.adminKey : TEST_ADMIN_KEY
 
   const { createHost } = await import("../src/host.js")
   const { createHttpServer } = await import("../src/server.js")
@@ -45,6 +63,9 @@ export async function startTestApp(options = {}) {
   const server = createHttpServer(host, {
     logger: console,
     proxyGateway: options.proxyGateway !== false,
+    // `adminAuth` 默认**开**（产品默认），只有需要验证「关掉鉴权」时才传 false。
+    adminAuth: options.adminAuth !== false,
+    adminKey: options.adminAuth === false ? null : adminKey,
   })
   await new Promise((resolve, reject) => {
     server.once("error", reject)
@@ -61,6 +82,7 @@ export async function startTestApp(options = {}) {
     server,
     origin,
     home,
+    adminKey,
     /**
      * 关服务 + 回收插件资源。
      *
@@ -77,12 +99,17 @@ export async function startTestApp(options = {}) {
 /**
  * 调一次 Jet Hub RPC（走真实的 HTTP 端点，不经任何内部捷径）。
  *
+ * ⚠️ 默认带上管理密钥：管理端鉴权是**产品默认**，不带就一律 401。
+ * 需要断言「未授权」的行为时传 `{ authorized: false }`。
+ *
  * @returns `result` 信封（`{ ok, value }` 或 `{ ok, error }`）。
  */
-export async function rpc(origin, method, payload = {}) {
+export async function rpc(origin, method, payload = {}, options = {}) {
+  const headers = { "content-type": "application/json" }
+  if (options.authorized !== false) headers.authorization = `Bearer ${options.key ?? TEST_ADMIN_KEY}`
   const response = await fetch(`${origin}/api/jet-hub`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers,
     body: JSON.stringify({
       type: "client-request",
       rpcId: `test-${Math.random().toString(36).slice(2)}`,

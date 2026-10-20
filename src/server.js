@@ -1,6 +1,6 @@
 /**
  * 对外 HTTP 服务：`/admin` 管理界面 + Jet Hub RPC 透传 + 健康检查
- * （+ 可选的 `/v1/*` 网关反代）。
+ * （+ `/v1/*` 网关反代）。
  *
  * ## 两个监听端口
  *
@@ -11,11 +11,13 @@
  * 不可经环境变量修改 —— 那是上游刻意的安全边界）。于是容器部署时外部
  * 根本连不到 8326，这正是下面反代存在的原因。
  *
- * ## `PROXY_GATEWAY=1` 时的 `/v1/*` 反代
+ * ## `/v1/*` 反代**默认开启**（2026-10-20 起）
  *
- * 开启后本服务会把 `/v1/*` **透明转发**到插件网关（同进程内的
- * `127.0.0.1:<网关端口>`），于是只需暴露一个端口（8080）就能同时提供
- * 管理界面与 OpenAI 接口 —— 容器部署的关键。
+ * 初版要 `PROXY_GATEWAY=1` 显式开启，理由是「本机开发直连 8326 更直观」。
+ * 实测这个默认值是个**部署陷阱**：容器里忘了设就表现为「服务起来了，但
+ * `/v1/*` 全部 404」，而 404 完全不像配置问题，用户会先去怀疑客户端参数。
+ * 现在改为默认开启、显式关闭（`PROXY_GATEWAY=0`）。直连 8326 依然可用
+ * （网关自己照旧监听），所以本机开发并没有失去什么。
  *
  * ⚠️ 透明转发 = **不碰 Authorization**：客户端仍须带插件网关的 Bearer Key，
  * 反代不注入、不校验、不换钥。这样「谁能用」「用哪个 Key」的判定始终只有
@@ -26,8 +28,46 @@
  * 客户端表现为长时间无响应后突然全文出现 —— 那正是 OpenAI 客户端最容易
  * 超时报错的形态。
  *
- * 默认**关闭**：本机开发时直连 8326 更直观，多一跳没有收益。容器里由
- * Dockerfile 显式设为 1。
+ * ## 管理端鉴权（2026-10-20 新增）
+ *
+ * `/admin`、静态子资源与 `/api/jet-hub` 全部要求一个**独立于网关 Key** 的
+ * 管理密钥（`<home>/admin-key` 或 `CODEARTS2API_ADMIN_KEY`）。理由与实现见
+ * `admin-auth.js` 的模块头 —— 核心是：网关 Key 要发给调用方，管理权限不能跟着走。
+ *
+ * 浏览器侧走**登录页 → HttpOnly 会话 Cookie**，而不是「页面公开 + 弹密钥框」：
+ * 后者必须先公开 `/admin` 与 `/admin.js`，等于白送「这台机器跑着 codearts2api」
+ * 这个事实和一份 644KB 的上游管理 UI。前者连文档导航都拦住。
+ *
+ * 同时**仍然接受** `Authorization: Bearer <admin-key>` —— 否则 curl / 脚本 /
+ * 监控就没法用了，而 README 里本来就有用 curl 调 RPC 的教程。
+ *
+ * 放行清单只有三条，且都是**刻意的**：
+ *
+ * | 路径 | 为什么放行 |
+ * | --- | --- |
+ * | `/healthz` | 不含密钥（只有开关、地址、模型数），要给监控 / 探活用 |
+ * | `/v1/*` | 它有自己的 Bearer 校验（插件网关），判定权只在一处 |
+ * | `/api/jet-hub/captcha-carrier` | 验证码载体页：页面里没有秘密（只有阿里云 SDK 的公开参数，见上游 `zcode-carrier-page.ts` 的注释），且它要被 `<webview>` 直接导航 —— 加鉴权会废掉 zcode 渠道 |
+ *
+ * 其余**一律拦截**（默认拒绝）。这里刻意不用「逐个列举要保护的路由」的
+ * 黑名单：将来随手加一个 `/backup.json` 之类的静态文件时，黑名单会自动
+ * 把它变成公开资源，而这类遗漏极难发现。
+ *
+ * ## 安全响应头
+ *
+ * 管理相关的响应统一带 CSP / `nosniff` / `X-Frame-Options` 等。注意 CSP 是
+ * 按**页面能力**定的，不是越严越好：
+ *
+ * - `script-src 'self'`：页面只有三个同源脚本（`admin-boot.js` /
+ *   `upstream-jet-hub.js` / `admin.js`），且已核实上游 bundle 里**没有**
+ *   `eval` / `new Function` / 内联事件属性 —— 所以不需要 `'unsafe-eval'`。
+ * - `style-src 'self' 'unsafe-inline'`：上游 UI 用 React 的 `style={{…}}`，
+ *   那是**元素 style 属性**，CSS 的 `'unsafe-inline'` 覆盖不了它（它归
+ *   `style-src-attr`），故这里必须放行 `'unsafe-inline'`。样式不执行代码，
+ *   放宽它是可控的取舍。
+ * - `img-src 'self' data: blob:`：`blob:` 是上游导出 CSV/JSON 时用
+ *   `URL.createObjectURL` 造下载链接触发的（实测 bundle 里有 2 处）。
+ * - `connect-src 'self'`：页面只跟自己的 `/api/jet-hub` 通信。
  */
 
 import { createServer } from "node:http"
@@ -37,9 +77,26 @@ import { fileURLToPath } from "node:url"
 import { Readable } from "node:stream"
 
 import { CARRIER_PATH, JET_HUB_PATH, rpcEnvelope } from "./upstream.js"
+import {
+  ADMIN_KEY_FILE,
+  LOGIN_PATH,
+  LOGOUT_PATH,
+  LoginThrottle,
+  clientIp,
+  clearSessionCookie,
+  constantTimeEquals,
+  isAdminAuthorized,
+  isSecureRequest,
+  loadOrCreateAdminKey,
+  sessionCookie,
+} from "./admin-auth.js"
+import { renderLoginPage, sanitizeNext } from "./admin-login-page.js"
 
 /** 请求体上限，与插件网关同值（16MB）。 */
 const BODY_LIMIT = 16 * 1024 * 1024
+
+/** 登录表单的上限（密钥就 43 字节，给足 4KB 已是慷慨）。 */
+const LOGIN_BODY_LIMIT = 4 * 1024
 
 /** 网关目标地址的缓存时长：网关可被开关启停，端口可能变，故不能永久缓存。 */
 const TARGET_TTL_MS = 5_000
@@ -47,6 +104,32 @@ const TARGET_TTL_MS = 5_000
 const here = fileURLToPath(new URL(".", import.meta.url))
 /** 静态资源目录（`admin.html` 与构建出的 `admin.js`）。 */
 const PUBLIC_DIR = join(here, "..", "public")
+
+/**
+ * 管理相关的安全响应头。
+ *
+ * `frame-ancestors 'none'` + `X-Frame-Options: DENY` 是**成对**的：后者给不支持
+ * CSP 的老浏览器兜底。少了任一条，上游 UI 就可能在别的站点里被套框点击
+ * （点击劫持），而管理界面里「删除账号」这类按钮的代价很高。
+ */
+const SECURITY_HEADERS = {
+  "content-security-policy": [
+    "default-src 'none'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "font-src 'self'",
+    "connect-src 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+    "base-uri 'none'",
+    "object-src 'none'",
+  ].join("; "),
+  "x-content-type-options": "nosniff",
+  "x-frame-options": "DENY",
+  "referrer-policy": "no-referrer",
+  "cross-origin-opener-policy": "same-origin",
+}
 
 const CONTENT_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -64,8 +147,17 @@ const send = (response, status, body, headers = {}) => {
   response.end(body)
 }
 
-const sendJson = (response, status, value) =>
-  send(response, status, JSON.stringify(value), {
+/**
+ * 发管理端响应：自动带上安全响应头。
+ *
+ * 登录页、管理页、错误页、JSON 全部走这里 —— 漏掉一处的后果是那一个响应缺少
+ * 防点击劫持头，而这种缺口不会有人主动报障。
+ */
+const sendAdmin = (response, status, body, headers = {}) =>
+  send(response, status, body, { ...SECURITY_HEADERS, ...headers })
+
+const sendAdminJson = (response, status, value) =>
+  sendAdmin(response, status, JSON.stringify(value), {
     "content-type": "application/json; charset=utf-8",
   })
 
@@ -74,11 +166,15 @@ const sendJson = (response, status, value) =>
  *
  * 不拼用户输入，故无穿越面；仍收敛到固定几个名字，避免将来越加越多时
  * 引入目录穿越。
+ *
+ * ⚠️ 这张表里的**每一个**条目都受管理端鉴权保护（见文件头的「默认拒绝」）。
  */
 const STATIC_FILES = new Map([
   ["/", "admin.html"],
   ["/admin", "admin.html"],
   ["/admin/", "admin.html"],
+  ["/admin.css", "admin.css"],
+  ["/admin-boot.js", "admin-boot.js"],
   ["/admin.js", "admin.js"],
   ["/upstream-jet-hub.js", "upstream-jet-hub.js"],
 ])
@@ -96,14 +192,43 @@ const HOP_BY_HOP = new Set([
   "upgrade",
 ])
 
+/**
+ * 判断一条路径是否需要管理端鉴权。
+ *
+ * ## 为什么写成「默认拦截」
+ *
+ * 见文件头的同名段落：黑名单的失效方式是**静默**的（新资源自动公开），
+ * 白名单的失效方式是**显式**的（新资源默认打不开，立刻有人报障）。
+ * 后者是更安全的失败方向。
+ *
+ * @param path - `url.pathname`。
+ * @returns 需要鉴权则为 `true`。
+ */
+export function needsAdminAuth(path) {
+  // 探活：不含任何秘密，要给监控 / 容器 HEALTHCHECK 用。
+  if (path === "/healthz") return false
+  // OpenAI 兼容接口：它有自己的 Bearer 校验，鉴权判定权只在插件网关一处。
+  if (path === "/v1" || path.startsWith("/v1/")) return false
+  // 验证码载体页：页面里只有阿里云 SDK 的公开初始化参数，且要被 <webview>
+  // 直接导航（那种导航带不了任何头）。加鉴权 = zcode 渠道直接不可用。
+  // ⚠️ 必须**精确匹配**：它和 RPC 同一个 `/api/jet-hub` 前缀，用前缀判断会
+  //    把整个管理 RPC 一起放行。
+  if (path === CARRIER_PATH) return false
+  // 登录页本身：不放行就永远登不进去（先有鸡还是先有蛋）。
+  if (path === LOGIN_PATH) return false
+  // 登出：只清 Cookie，无副作用可被利用。
+  if (path === LOGOUT_PATH) return false
+  return true
+}
+
 /** 把 WHATWG Request 所需的请求体读成 Buffer（带上限）。 */
-function readBody(request) {
+function readBody(request, limit = BODY_LIMIT) {
   return new Promise((resolve, reject) => {
     const chunks = []
     let size = 0
     request.on("data", (chunk) => {
       size += chunk.length
-      if (size > BODY_LIMIT) {
+      if (size > limit) {
         reject(new Error("request body too large"))
         request.destroy()
         return
@@ -145,13 +270,61 @@ async function sendWebResponse(response, web) {
 }
 
 /**
+ * 解析登录表单（`application/x-www-form-urlencoded`）。
+ *
+ * 不用 `URLSearchParams` 读整段是为了**先判长度**：`readBody` 已经带上限，
+ * 但这里再显式一次，避免将来有人把 `readBody` 的上限改大时静默失去保护。
+ *
+ * @returns `{ key, next }`；格式非法时两者为空串。
+ */
+async function readLoginForm(request) {
+  const raw = await readBody(request, LOGIN_BODY_LIMIT)
+  const params = new URLSearchParams(raw.toString("utf8"))
+  return {
+    key: params.get("key") ?? "",
+    next: params.get("next") ?? "",
+  }
+}
+
+/**
  * 创建 HTTP 服务。
  *
  * @param host - 插件宿主（`createHost()` 的返回值）。
- * @param options - `{ logger, proxyGateway }`。
+ * @param options - `{ logger, proxyGateway, adminAuth, adminKey }`。
+ *   `adminAuth: false` 关闭鉴权（仅本机开发；公网等于裸奔）。
+ *   `adminKey` 用于测试注入，省略则从 home 解析。
  */
 export function createHttpServer(host, options = {}) {
   const proxyGateway = options.proxyGateway === true
+  const logger = options.logger
+  const adminAuthEnabled = options.adminAuth !== false
+
+  /** 管理密钥（读到就不变；`null` 表示鉴权已关闭）。 */
+  let adminKey = typeof options.adminKey === "string" && options.adminKey !== "" ? options.adminKey : null
+  /** 密钥是否来自环境变量（仅用于登录页的提示文案）。 */
+  let adminKeyFromEnv = false
+  if (adminAuthEnabled && adminKey === null) {
+    const loaded = loadOrCreateAdminKey(host.home)
+    adminKey = loaded.value
+    adminKeyFromEnv = loaded.fromEnv
+    if (loaded.generated) {
+      // ⚠️ 只在**首次生成**时打印全文：之后每次启动都打一遍，等于把它写进
+      //    所有容器的日志历史里（docker logs 是长期可查的）。
+      logger?.info?.(`[admin-auth] 已生成管理密钥（仅本次打印，之后请查看文件）：${loaded.value}`)
+      logger?.info?.(`[admin-auth] 密钥文件：${loaded.path}`)
+    } else if (loaded.fromEnv) {
+      logger?.info?.("[admin-auth] 管理密钥取自 CODEARTS2API_ADMIN_KEY 环境变量")
+    } else {
+      logger?.info?.(`[admin-auth] 管理密钥文件：${loaded.path}`)
+    }
+  } else if (!adminAuthEnabled) {
+    logger?.warn?.(
+      "[admin-auth] ⚠️ 管理端鉴权已被 CODEARTS2API_ADMIN_AUTH=0 关闭 —— /admin 与 /api/jet-hub 对任何能访问该端口的人开放。",
+    )
+  }
+
+  /** 登录失败限速（按来源 IP）。 */
+  const throttle = new LoginThrottle()
 
   /** 网关目标地址的缓存（避免每个请求都多一次本地 RPC）。 */
   let targetCache = { at: 0, host: undefined, port: undefined }
@@ -209,8 +382,8 @@ export function createHttpServer(host, options = {}) {
     } catch (error) {
       // 网关没起来（被关掉 / 端口冲突 / 启动失败）：回 OpenAI 形态的错误，
       // 让客户端能读懂，而不是一个空连接或 HTML 500。
-      options.logger?.warn?.(`[proxy] 网关不可达（${target.host}:${target.port}）：${String(error)}`)
-      sendJson(response, 502, {
+      logger?.warn?.(`[proxy] 网关不可达（${target.host}:${target.port}）：${String(error)}`)
+      sendAdminJson(response, 502, {
         error: {
           message: `本机网关不可达（${target.host}:${target.port}）。请在 /admin 里确认网关已开启。`,
           type: "server_error",
@@ -241,47 +414,171 @@ export function createHttpServer(host, options = {}) {
     stream.pipe(response)
   }
 
+  /**
+   * 未授权时的响应：**看调用方要什么**再决定形态。
+   *
+   * - 浏览器（`Accept` 含 `text/html`）：302 到登录页，并带上 `next` 以便登录后回来。
+   *   若在这里直接回 401 JSON，用户看到的是满屏花括号，会以为是服务坏了。
+   * - 脚本 / 客户端：401 + JSON，并在 `WWW-Authenticate` 里点明方案（便于 curl 调试）。
+   */
+  function respondUnauthorized(request, response, url) {
+    const accept = String(request.headers?.accept ?? "")
+    const wantsHtml = accept.includes("text/html")
+    if (wantsHtml) {
+      const next = encodeURIComponent(`${url.pathname}${url.search}`)
+      sendAdmin(response, 302, "", { location: `${LOGIN_PATH}?next=${next}` })
+      return
+    }
+    sendAdminJson(response, 401, {
+      error: "unauthorized",
+      message:
+        "管理端需要鉴权：浏览器请打开 /admin 用管理密钥登录；脚本请带 Authorization: Bearer <admin-key>。" +
+        "密钥在 <CODEARTS2API_HOME>/admin-key，或由 CODEARTS2API_ADMIN_KEY 指定。",
+    })
+  }
+
+  /** 渲染登录页（可带错误提示）。 */
+  function respondLoginPage(request, response, url, error) {
+    sendAdmin(
+      response,
+      200,
+      renderLoginPage({
+        error,
+        next: sanitizeNext(url.searchParams.get("next") ?? "/admin"),
+        keyPath: join(host.home, ADMIN_KEY_FILE),
+        // 密钥来源只用于**提示文案**（「去这个文件里找」 vs「看环境变量」）。
+        fromEnv: adminKeyFromEnv,
+        disabled: !adminKeyEnabled(),
+      }),
+      { "content-type": "text/html; charset=utf-8" },
+    )
+  }
+
+  /** 鉴权是否真的在生效（关闭时一律放行）。 */
+  function adminKeyEnabled() {
+    return adminAuthEnabled && typeof adminKey === "string" && adminKey !== ""
+  }
+
+  /** 处理登录表单提交。 */
+  async function handleLogin(request, response, url) {
+    if (request.method === "GET" || request.method === "HEAD") {
+      // 已登录的人访问登录页：直接送回后台，而不是让他再输一遍。
+      if (adminKeyEnabled() && isAdminAuthorized(request, adminKey)) {
+        sendAdmin(response, 302, "", { location: sanitizeNext(url.searchParams.get("next") ?? "/admin") })
+        return
+      }
+      respondLoginPage(request, response, url, null)
+      return
+    }
+
+    if (request.method !== "POST") {
+      sendAdminJson(response, 405, { error: "method not allowed" })
+      return
+    }
+
+    const ip = clientIp(request)
+    const limited = throttle.check(ip)
+    if (limited !== null) {
+      respondLoginPage(request, response, url, `尝试过于频繁，请 ${limited.retryAfter} 秒后再试。`)
+      return
+    }
+
+    let form
+    try {
+      form = await readLoginForm(request)
+    } catch {
+      sendAdminJson(response, 400, { error: "invalid form body" })
+      return
+    }
+
+    if (adminKeyEnabled() && constantTimeEquals(form.key.trim(), adminKey)) {
+      throttle.reset(ip)
+      const next = sanitizeNext(form.next)
+      // 会话 Cookie 的 `Secure` 只在真的走 HTTPS 时加。理由见 admin-auth.js 的
+      // `sessionCookie`：默认加会让「http://ip:8080 直连」的用户永远登不进去。
+      response.writeHead(303, {
+        ...SECURITY_HEADERS,
+        "cache-control": "no-store",
+        "set-cookie": sessionCookie(adminKey, { secure: isSecureRequest(request) }),
+        location: next,
+      })
+      response.end()
+      return
+    }
+
+    throttle.fail(ip)
+    logger?.warn?.(`[admin-auth] 登录失败 ip=${ip}`)
+    respondLoginPage(request, response, url, "访问密钥不正确，请重试。")
+  }
+
   const server = createServer(async (request, response) => {
     const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "127.0.0.1"}`)
     const path = url.pathname
 
     try {
-      // ── 健康检查 ──
+      // ── 健康检查（无鉴权，刻意不含密钥）──
       if (path === "/healthz") {
         const gateway = await readGatewayState(host)
-        sendJson(response, 200, {
+        sendAdminJson(response, 200, {
           ok: true,
           home: host.home,
           routes: [...host.routes.keys()],
           providers: providerIds(host),
           proxyGateway,
+          adminAuth: adminKeyEnabled(),
           gateway,
         })
         return
       }
 
-      // ── OpenAI 兼容反代（可选）──
-      if (proxyGateway && path.startsWith("/v1/")) {
+      // ── 登录 / 登出（无鉴权，否则永远进不去）──
+      if (path === LOGIN_PATH) {
+        await handleLogin(request, response, url)
+        return
+      }
+      if (path === LOGOUT_PATH) {
+        response.writeHead(303, {
+          ...SECURITY_HEADERS,
+          "cache-control": "no-store",
+          "set-cookie": clearSessionCookie(),
+          location: LOGIN_PATH,
+        })
+        response.end()
+        return
+      }
+
+      // ── OpenAI 兼容反代（默认开启；有自己的 Bearer 鉴权）──
+      if (proxyGateway && (path === "/v1" || path.startsWith("/v1/"))) {
         await proxyToGateway(request, response, url)
         return
       }
 
-      // ── Jet Hub 管理 RPC（透传给插件） ──
-      if (path === JET_HUB_PATH) {
-        const outcome = await host.handleRpc(JET_HUB_PATH, await toWebRequest(request, url.href))
+      // ── 验证码载体页（放行：页面无秘密，且要被 <webview> 直接导航）──
+      if (path === CARRIER_PATH) {
+        const outcome = await host.handleRpc(CARRIER_PATH, await toWebRequest(request, url.href))
         if (outcome === undefined) {
-          sendJson(response, 404, { error: "Jet Hub 端点未注册" })
+          send(response, 404, "载体页未注册")
           return
         }
         await sendWebResponse(response, outcome)
         return
       }
 
-      // ── zcode 载体页（可选，插件未注册时 404） ──
-      if (path === CARRIER_PATH) {
-        const outcome = await host.handleRpc(CARRIER_PATH, await toWebRequest(request, url.href))
+      // ── 管理端鉴权门（其余一切都在门后）──
+      //
+      // `adminKeyEnabled()` 为假（`CODEARTS2API_ADMIN_AUTH=0`）时整道门拆掉 ——
+      // 这也是本机开发想要的行为。⚠️ 注意不能只写 `!isAdminAuthorized(...)`：
+      // 密钥为空时它恒返回 false，会把所有请求都拦下，表现为「关了鉴权反而全 401」。
+      if (adminKeyEnabled() && needsAdminAuth(path) && !isAdminAuthorized(request, adminKey)) {
+        respondUnauthorized(request, response, url)
+        return
+      }
+
+      // ── Jet Hub 管理 RPC（透传给插件）──
+      if (path === JET_HUB_PATH) {
+        const outcome = await host.handleRpc(JET_HUB_PATH, await toWebRequest(request, url.href))
         if (outcome === undefined) {
-          send(response, 404, "载体页未注册")
+          sendAdminJson(response, 404, { error: "Jet Hub 端点未注册" })
           return
         }
         await sendWebResponse(response, outcome)
@@ -293,20 +590,22 @@ export function createHttpServer(host, options = {}) {
       if (file !== undefined && (request.method === "GET" || request.method === "HEAD")) {
         const target = join(PUBLIC_DIR, file)
         if (!existsSync(target)) {
-          send(response, 503, "管理界面尚未构建：请先执行 npm run build")
+          sendAdmin(response, 503, "管理界面尚未构建：请先执行 npm run build", {
+            "content-type": "text/plain; charset=utf-8",
+          })
           return
         }
-        send(response, 200, readFileSync(target), {
+        sendAdmin(response, 200, readFileSync(target), {
           "content-type": CONTENT_TYPES[extname(target)] ?? "application/octet-stream",
         })
         return
       }
 
-      sendJson(response, 404, { error: "not found" })
+      sendAdminJson(response, 404, { error: "not found" })
     } catch (error) {
       // 兜底：任何未捕获异常都必须变成响应，否则连接会挂住、前端表现为「点了没反应」。
-      options.logger?.error?.(`[http] ${request.method} ${path} 处理失败：${String(error)}`)
-      if (!response.headersSent) sendJson(response, 500, { error: String(error) })
+      logger?.error?.(`[http] ${request.method} ${path} 处理失败：${String(error)}`)
+      if (!response.headersSent) sendAdminJson(response, 500, { error: String(error) })
       else response.end()
     }
   })

@@ -3,55 +3,43 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
     <title>Jet Hub · 渠道与网关管理</title>
-    <style>
-      /* 上游页面样式由它自己的 installJetHubStyles() 注入（一个 <style> 标签），
-       这里只做页面级的外壳复位：让 .dim-jh-page 能撑满视口。 */
-      html,
-      body {
-        margin: 0;
-        padding: 0;
-        height: 100%;
-      }
-      body {
-        background: var(--dsw-alias-bg-layer-1, #f5f6f8);
-      }
-      #admin-root {
-        height: 100vh;
-        display: flex;
-        flex-direction: column;
-      }
-      #admin-root > .dim-jh-page {
-        flex: 1;
-        min-height: 0;
-      }
-      .boot {
-        padding: 24px;
-        font:
-          13px/1.6 ui-monospace,
-          monospace;
-        color: #555;
-      }
-    </style>
+    <!--
+    样式拆成独立文件而不是内联 <style>：本页由服务端配了 CSP
+    （见 src/server.js 的 SECURITY_HEADERS），内联样式会被拦。
+    上游页面自己的样式由它在运行时 installJetHubStyles() 注入 <style> 标签。
+  -->
+    <link rel="stylesheet" href="/admin.css" />
   </head>
   <body>
     <div id="admin-root"><div class="boot">正在加载管理界面…</div></div>
 
     <!--
-    装载顺序是**硬约束**，不能换：
+    ⚠️⚠️ 三个 script 必须留在 **<body> 末尾**（而不是 <head> 里）。
 
-    1. 先定义 __ModuleLoader__.load：上游 bundle 的第一句就会调用它。
-       若此时它还不存在，上游 bundle 直接抛错、整页空白。
-    2. 再加载上游 bundle（把它的 { id, factory } 行截留下来，不执行 factory）。
-    3. 最后加载本项目的入口，由它调 factory 并渲染。
+    这是踩过的真实故障：为了「样式与脚本都不内联」，一度把它们挪进了 <head>。
+    结果 `<head>` 里的普通 <script> 在**解析到那一行时立即执行**，而此刻
+    `<body>` 还没被解析 ⇒ `document.getElementById('admin-root')` 返回 null
+    ⇒ `createRoot(null)` 之后写 `root.innerHTML` 抛
+    `Cannot set properties of null (setting 'innerHTML')`，页面永远停在
+    「正在加载管理界面…」。
+
+    修法不是加 `defer`（那会改变三者的执行时机语义），而是**让它们留在
+    body 末尾** —— 位置本身就保证了「DOM 已就绪」。
+
+    装载顺序同样是**硬约束**，不能换：
+
+    1. `admin-boot.js` 先定义 `__ModuleLoader__.load` —— 上游 bundle 的第一句
+       就会调用它，缺了直接抛 `Cannot read properties of undefined`。
+    2. 再加载上游 bundle（把它的 `{ id, factory }` 行截留下来，**不执行** factory）。
+    3. 最后由 `admin.js` 调 factory 并渲染。
+
+    拆成外部文件是为了让 `script-src 'self'` 这条 CSP 成立 —— 内联 <script>
+    只有两个下场：要么放行 'unsafe-inline'（CSP 基本作废），要么给这个静态
+    文件插 nonce（把它变成模板）。见 public/admin-boot.js 的文件头。
   -->
-    <script>
-      window.__ModuleLoader__ = {
-        load: function (row) {
-          window.__JET_HUB_ROW__ = row
-        },
-      }
-    </script>
+    <script src="/admin-boot.js"></script>
     <script src="/upstream-jet-hub.js"></script>
     <script src="/admin.js"></script>
   </body>

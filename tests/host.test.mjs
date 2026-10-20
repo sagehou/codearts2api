@@ -10,7 +10,7 @@ import { test } from "node:test"
 import assert from "node:assert/strict"
 import { startTestApp, rpc } from "./helpers.mjs"
 
-/** 期望注册的 provider（19 个渠道 + aggregate / jet-hub-auto 两条聚合路由）。 */
+/** 期望注册的 provider（20 个渠道 + aggregate / jet-hub-auto 两条聚合路由）。 */
 const EXPECTED_PROVIDERS = [
   "codearts",
   "buddy",
@@ -32,6 +32,9 @@ const EXPECTED_PROVIDERS = [
   "autoclaw",
   // 上游 2026-10-14 新增：Accio（阿里）。⚠️ 它在 autoclaw 之后、zcode **之前**。
   "accio",
+  // 上游 2026-10-20 新增：AStudio（讯飞，`astudio`）。⚠️ 注册在 accio 之后、
+  // modelscope **之前**（`index.ts` 里 `registerAstudioLlm` 紧跟 `registerAccioLlm`）。
+  "astudio",
   // 上游新增 ModelScope（魔搭）：适配器注册在 accio 之后、zcode 之前。
   "modelscope",
   "zcode",
