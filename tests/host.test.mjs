@@ -10,7 +10,7 @@ import { test } from "node:test"
 import assert from "node:assert/strict"
 import { startTestApp, rpc } from "./helpers.mjs"
 
-/** 期望注册的 provider（20 个渠道 + aggregate / jet-hub-auto 两条聚合路由）。 */
+/** 期望注册的 provider（21 个渠道 + aggregate / jet-hub-auto 两条聚合路由）。 */
 const EXPECTED_PROVIDERS = [
   "codearts",
   "buddy",
@@ -30,6 +30,10 @@ const EXPECTED_PROVIDERS = [
   "gemini",
   // 上游 2026-10-18 新增：AutoClaw（智谱）。⚠️ 它紧跟 gemini、在 accio **之前**。
   "autoclaw",
+  // 上游 2026-10-21 新增：AutoClaw 国际版（`autoclawintl`）。与 `minimaxintl` 同型 ——
+  // 与国内版**共用同一份 `autoclaw-credits.ts`**，注册时是第二次调用，因此紧随
+  // `autoclaw` 之后、在 accio **之前**。
+  "autoclawintl",
   // 上游 2026-10-14 新增：Accio（阿里）。⚠️ 它在 autoclaw 之后、zcode **之前**。
   "accio",
   // 上游 2026-10-20 新增：AStudio（讯飞，`astudio`）。⚠️ 注册在 accio 之后、

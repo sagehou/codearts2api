@@ -7,6 +7,66 @@
 ---
 
 <details open>
+<summary><b>2026-10-21 · 上游升级 <code>78dc506</code>：新增 AutoClaw 国际版（第 21 个渠道）、窄屏适配</b></summary>
+
+## 上游升级
+
+依赖从 `cafe269872f4b99af15745981ce8ff8e085b959b` 更新到
+`78dc506cf42bb1821a20cd4378f2b81cd8de8ded`，版本号仍为 **0.2.1-rc.2**
+（`peerDependencies` 与 `dependencies` 未变，无需换基础包）。上游 23 个 commit，本仓库
+**产品代码 0 行改动** —— 只有测试期望列表与文档里的渠道数跟着变。
+
+### 新增 AutoClaw 国际版渠道（`autoclawintl`）
+
+第 **21** 个渠道，与「AutoClaw（智谱）」并列（文案 `AutoClaw (国际版)`）。上游判定它该
+独立成 provider 而不是加站点参数，判据与 `minimaxintl` 同款 —— 账号体系（手机号 vs 邮箱）、
+API 主机（`autoglm-acceleration-api.zhipuai.cn` vs `autoglm-api.autoglm.ai`）、登录方式
+（短信验证码 vs Z.ai OAuth）三处全不同，实测国内 token 打国际基址一律 `410000 用户未登录`
+/ 推理 401 ⇒ 用户体系物理隔离。
+
+**登录走本地导入**：零复制，复用同一份 `autoclaw-credits.ts`，因此积分能力与国内版一致。
+面板上它紧跟在 `autoclaw` 之后、`accio` 之前（适配器注册顺序）。
+
+### Jet Hub 窄屏适配
+
+此前**只有弹窗内部**有 media 查询，主布局一条都没有 ⇒ 窄屏（约 400px）下
+`.dim-jh-rail` 固定 228px 会把右面板压成窄缝、操作按钮被裁断、中文提示逐字竖排。
+现在主布局改为**上下两段**（rail 在面板小屏时从左侧栏变成顶部横条），用量浮层也不再
+以徽标为锚点向左硬展开 240px，而是 **portal 到 `document.body` 并按视口锚定**（修 Edge
+旧内核在 `container-type: inline-size` 下锚定失效导致左边缘飞出视口的问题）。
+
+⚠️ 这两处都是**上游客户端产物**，本仓库 `npm run build` 重新拷贝即可，无需改代码。
+
+### 其他上游修复
+
+- **关闭供应商后不再被目录增长静默重开**（Gitee IKP8OF）：此前 `setEnabled(false)`
+  只把**当时**目录的模型写进黑名单，而 `provider.status` 的 `closed` 是按**当前**目录派生
+  ⇒ 目录增长后「已关闭」的渠道会自己回到「已打开」分组。现在两处判据同源。
+- **Buddy / WorkBuddy 补登 DSH 身份首句风控指纹**：两个腾讯系端点对
+  `You are an AI agent powered by DeepSeek Harness.` 做行首锚定的内容级风控
+  （400 / `code 11128`），此前表现为「每轮必 400、换号换模型都无效」。
+- **Loomy 三条既有缺陷**：HTTP 200 + 业务码 `100002` 现在也换号；凭据探测改为针对**本轮**
+  凭据；探测失败按退避处理，401/403 分支的探测失败不再打断整轮。
+- **AutoClaw 审计整改**：修 P0「国际版一键导入仍读国内目录且绕过归属校验」、同账号去重、
+  积分批次改**净额**口径（修「全显示成永久」）。
+- **聚合路由**：候选能力解析改串行、失败不缓存（此前每轮白等 60 秒）；预算超时不再被读成
+  用户取消。
+
+### 本仓库侧的改动
+
+- `tests/host.test.mjs`：`EXPECTED_PROVIDERS` 加入 `autoclawintl`（在 `autoclaw` 之后、
+  `accio` 之前），渠道注释 20 → 21。
+- `tests/admin-ui.test.mjs`：导航数 21 → 22（21 渠道 + 1 聚合面板）；按 `minimaxintl` 的
+  同款做法**分别**断言「AutoClaw (智谱)」与「AutoClaw (国际版)」—— 只写 `includes("AutoClaw")`
+  的话国际版被删掉也不会红。
+- `README.md`：特性、管理界面、真机确认三处的渠道数 20 → 21。
+
+验证：`npm test` 36/36 通过，`npm run lint` / `format:check` 干净，启动日志有
+`上游契约核对通过`（端点与槽名未变，`src/upstream.js` 无需改动）。
+
+</details>
+
+<details>
 <summary><b>2026-10-20 · 管理端登录鉴权、<code>/v1/*</code> 默认可用、Qoder 模型列表改走远端；上游升级 <code>cafe269</code></b></summary>
 
 ## 管理端登录鉴权
