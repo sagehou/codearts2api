@@ -4,13 +4,14 @@
 **Jet Hub 多渠道账号管理**与**本机 OpenAI 网关**搬到独立后端运行，**不依赖 DSH 宿主**，
 面向自建服务与容器部署。
 
-上游本身是一个标准 **cordis 插件**。本项目把它的宿主依赖面就位后直接装载 ——
-**不 fork、不改上游代码**，因此上游新增渠道、修协议、改界面时，本仓库通常
-**0 行代码改动**（见[升级时需要改多少代码](#升级时需要改多少代码)）。
+它不 fork 上游代码，而是直接把上游的插件装载起来 —— 所以**渠道、模型、协议、界面
+都跟着上游走**，本项目自己只负责鉴权、状态隔离与对外接口。
 
 <img width="1920" height="1031" alt="Jet Hub 管理界面（上游设置页原样复用）" src="https://github.com/user-attachments/assets/0fc7e323-2830-49e0-898f-88e28c631a71" />
 
 ## 目录
+
+**使用**
 
 - [特性](#特性)
 - [快速开始](#快速开始)
@@ -19,34 +20,31 @@
   - [状态目录](#状态目录)
   - [从 DSH 或旧版本迁移账号](#从-dsh-或旧版本迁移账号)
 - [使用](#使用)
+  - [管理端鉴权](#管理端鉴权)
   - [管理界面](#管理界面)
   - [OpenAI 兼容接口](#openai-兼容接口)
   - [聚合路由](#聚合路由)
 - [部署](#部署)
   - [本机直跑](#本机直跑)
   - [Docker](#docker)
-  - [反向代理](#反向代理)
+  - [反向代理](#反向代理现在只为-tls--限流不为鉴权)
 - [安全边界](#安全边界)
 - [常见问题](#常见问题)
   - [远程部署的登录隧道](#远程部署的登录隧道)
   - [出不去墙外服务（Gemini / 出口代理）](#出不去墙外服务gemini--出口代理)
   - [图片输入](#图片输入)
   - [已知边界](#已知边界)
+
+**开发**
+
 - [架构](#架构)
-  - [宿主依赖面](#宿主依赖面)
-  - [依赖划分](#依赖划分)
 - [开发](#开发)
-  - [测试与规范](#测试与规范)
-  - [测试覆盖](#测试覆盖)
-  - [目录结构](#目录结构)
+  - [自动升级（GitHub Actions）](#自动升级github-actions)
 - [变更记录与升级](#变更记录与升级)
-  - [CHANGELOG 怎么写](#changelog-怎么写)
-  - [升级时需要改多少代码](#升级时需要改多少代码)
-  - [升级流程](#升级流程)
 
 ## 特性
 
-- **多渠道账号管理**：`/admin` 原样复用上游 Jet Hub 设置页 —— 21 个渠道的增删改查、
+- **多渠道账号管理**：`/admin` 原样复用上游 Jet Hub 设置页 —— 各渠道的增删改查、
   账号池、额度与限流、模型级 / 渠道级开关、聚合路由面板、备份与迁移。
 - **OpenAI 兼容网关**：`/v1/models`、`/v1/chat/completions`、`/v1/responses`，
   支持 SSE 流式、图片输入与 token 用量统计。
@@ -56,7 +54,7 @@
   **不读写** `~/.dsh`，可与 DSH 共存。
 - **自带管理端鉴权**：公网部署不需要 nginx Basic Auth —— 首次启动生成管理密钥，`/admin`
   带登录页、会话 Cookie 与登录限速，且密钥与网关 Key 刻意分开（发出去的 Key 进不了后台）。
-- **薄胶水**：与上游的代码耦合只有一行 `import`，升级成本极低且可回滚。
+- **上游持续更新**：渠道、模型、协议跟着上游走，本项目不 fork、不改上游代码。
 
 提供的 HTTP 接口：
 
@@ -67,12 +65,15 @@
 | `GET /v1/models`、`POST /v1/chat/completions`、`POST /v1/responses` | OpenAI 兼容接口（上游网关，需网关 Key）            |
 | `GET /healthz`                                                      | 健康检查（不含密钥，可给监控用）                   |
 
-> 📋 历次变更见 [`CHANGELOG.md`](CHANGELOG.md)，组织方式与升级流程见
-> [变更记录与升级](#变更记录与升级)。
+> 📋 历次变更见 [`CHANGELOG.md`](CHANGELOG.md)。
 
 ## 快速开始
 
-**要求**：Node.js `^22.19.0 || >=24.0.0`，且 `pnpm` 在 `PATH` 上。
+**要求**：Node.js `^22.19.0 || >=24.0.0`（**建议用 24 或更高**），且 `pnpm` 在 `PATH` 上。
+
+> 💡 **用 Node 24+ 更省事**：只有 Node 24+ 才带 `NODE_USE_ENV_PROXY`，
+> 需要让程序走系统代理时（出墙场景）不必再单独给账号配代理，
+> 见[出不去墙外服务](#出不去墙外服务gemini--出口代理)。
 
 ```bash
 npm install          # 需要 pnpm，见下方说明
@@ -125,9 +126,7 @@ npm start            # 默认 http://127.0.0.1:8080/admin
 
 ### 状态目录
 
-状态全放在自己的目录（默认 `~/.codearts2api`），**不读写** `~/.dsh`。启动时会把
-`DSH_HOME` 与 `DSH_JET_HUB_STATE_DIR` **覆盖**成这个目录 —— 插件内部所有落盘点都读它们，
-这是让它待在自家目录的唯一办法（外层 shell 已有的 `DSH_HOME` 因此不会把数据带走）。
+状态全放在自己的目录（默认 `~/.codearts2api`），**不读写** `~/.dsh`，可以与 DSH 共存。
 
 ### 从 DSH 或旧版本迁移账号
 
@@ -193,11 +192,10 @@ curl -s -X POST http://127.0.0.1:8080/api/jet-hub \
 | 路径                           | 为什么放行                                                                                                                       |
 | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
 | `/healthz`                     | 不含密钥（只有开关、地址、模型数），要给监控 / 容器探活                                                                          |
-| `/v1/*`                        | 它自己的 Bearer 校验归插件网关管，判定权只在一处                                                                                 |
+| `/v1/*`                        | 它有自己的 Bearer 校验，判定权只在一处                                                                                           |
 | `/api/jet-hub/captcha-carrier` | 验证码载体页：页面里只有阿里云 SDK 的公开参数，且要被 `<webview>` 直接导航（那类导航带不了任何头）—— 加鉴权会直接废掉 zcode 渠道 |
 
-其余**一律拦截**。这是「默认拒绝」的白名单写法，而不是逐个列举要保护的路由 ——
-后者在将来新增静态文件时会静默把它变成公开资源。
+其余**一律拦截**。
 
 **忘记密钥**：删掉 `<home>/admin-key` 重启即可重新生成（届时需重新登录）；
 或用 `CODEARTS2API_ADMIN_KEY` 环境变量指定。
@@ -223,34 +221,19 @@ curl -s -X POST http://127.0.0.1:8080/api/jet-hub \
 
 ### 管理界面
 
-打开 `/admin`（登录后）。左侧导航为 **21 个渠道 + 1 个「聚合 (跨渠道)」面板**，页头「网关」按钮
+打开 `/admin`（登录后）。左侧导航为**各渠道 + 1 个「聚合 (跨渠道)」面板**，页头「网关」按钮
 可查看监听地址、复制 API Key 与模型清单。
 
 账号卡片上的按钮随渠道而变：**测试 / 重测 / 重置 / 停用 / 删除** 是通用的；
 「**代理**」只对 `opencode` 与 `gemini` 出现（两者是**两份独立配置**，见
 [出不去墙外服务](#出不去墙外服务gemini--出口代理)）；「**指纹**」只对 `opencode` 出现。
 
-> 🔐 打开 `/admin` 会先看到**登录页**，粘贴管理密钥（`<home>/admin-key`）即可进入。
-> 这是与网关 Key **完全不同**的另一把密钥，详见[管理端鉴权](#管理端鉴权)。
-
 ### OpenAI 兼容接口
 
-先拿到网关地址与密钥，二选一：
+先拿到网关地址与密钥：登录 `/admin` → 页头 **「网关」** 按钮 → 显示实际监听地址、
+可复制 API Key、模型清单。
 
-1. 登录 `/admin` → 页头 **「网关」** 按钮 → 显示实际监听地址、可复制 API Key、模型清单。
-2. 或命令行（需管理密钥，见[管理端鉴权](#管理端鉴权)）：
-
-```bash
-ADMIN=$(cat ~/.codearts2api/admin-key)
-KEY=$(curl -s -X POST http://127.0.0.1:8080/api/jet-hub \
-  -H "authorization: Bearer $ADMIN" \
-  -H 'content-type: application/json' \
-  -d '{"type":"client-request","rpcId":"1","method":"jet-hub","payload":{"method":"gateway.getEnabled","payload":{}}}' \
-  | python3 -c "import sys,json;print(json.load(sys.stdin)['result']['value']['apiKey']['value'])")
-echo "$KEY"
-```
-
-客户端把 `base_url` 指向网关、`api_key` 填上面这个 Key 即可。模型 ID 形如
+客户端把 `base_url` 指向网关、`api_key` 填那个 Key 即可。模型 ID 形如
 `provider/模型名`（如 `codearts/deepseek-v4.1-flash`、`opencode/big-pickle`），
 **必须带渠道前缀**；可用模型以 `GET /v1/models` 返回为准。
 
@@ -349,8 +332,8 @@ server {
    你的全部账号凭据，也会**明文回传网关 API Key** —— 所以密钥务必当作密码保管，
    不要写进公开的 compose 文件或截图。
    - 密钥在 `<CODEARTS2API_HOME>/admin-key`（`0600`）或 `CODEARTS2API_ADMIN_KEY`；
-   - 浏览器侧用 **HttpOnly 会话 Cookie**（XSS 拿不到），令牌是 `HMAC(admin-key, 常量)`，
-     不是明文密钥 —— 拿到 Cookie 也推不回密钥；
+   - 浏览器侧用 **HttpOnly 会话 Cookie**（XSS 拿不到），令牌是派生值、不是明文密钥 ——
+     拿到 Cookie 也推不回密钥；
    - 登录失败按来源 IP 限速（10 次 / 10 分钟）；
    - 想关闭登录（**仅限本机**）：`CODEARTS2API_ADMIN_AUTH=0`，启动日志会告警。
 2. **网关密钥**以明文存在 `<CODEARTS2API_HOME>/openai-gateway/api-key`（`0600`）。
@@ -453,9 +436,8 @@ npm start
 ⚠️ **必须真的导出为环境变量**。只打开 Windows 设置里的「使用代理服务器」**对 Node 无效**
 —— 那正是「浏览器能用、程序不能用」的原因。
 
-⚠️ 与宿主 DSH 的差异（重要）：上游 README 说宿主 dsh 会在**第一个插件加载前**装全局代理
-分发器，因此导出 env 就能覆盖插件的全部请求。**本项目不是 dsh 宿主**，没有那层分发器；
-只有 Node 24+ 带 `NODE_USE_ENV_PROXY=1` 时，内置 `fetch` 才读 `HTTPS_PROXY`（本机在
+⚠️ 与宿主 DSH 的差异（重要）：宿主 dsh 会在**第一个插件加载前**装全局代理分发器，
+因此导出 env 就能覆盖全部请求。**本项目不是 dsh 宿主**，没有那层分发器；
 只有 Node 24+ 带 `NODE_USE_ENV_PROXY=1` 时，内置 `fetch` 才读 `HTTPS_PROXY`。
 所以在本项目里 **② 依赖 Node 版本 + 该变量**，稳妥做法仍是 ①。
 
@@ -486,18 +468,12 @@ curl -H "Authorization: Bearer $KEY" -H 'content-type: application/json' \
   http://127.0.0.1:8326/v1/chat/completions
 ```
 
-图片两端都要附件服务：**入站**由网关把 data URL 落成附件（`saveImage`），**出站**由各
-provider 适配器把字节内联进上游请求（`readImage` / `readImageRequest`）。
+图片两端都要附件服务：**入站**由网关把 data URL 落成附件，**出站**由各渠道把字节
+内联进上游请求。
 
-> ⚠️ 插件用 `ctx.get('attachments')` 取它（**不是** `inject`），服务缺失时不报错、只在
-> 真收到图片时才暴露 —— 所以必须在 `ctx.plugin(plugin)` **之前**装载。这也是本项目直接
-> 复用官方 `@deepseek-ai/dsh-attachment-local` 的原因（自实现要重担格式、权限、原子写、
-> mime 校验、缩放等细节）。
+#### 为什么不支持外部 `image_url`（设计说明）
 
-<details>
-<summary><b>为什么不支持外部 <code>image_url</code>（设计说明）</b></summary>
-
-**现状：拒绝**（`unsupported_content`）。这是**上游硬编码**的行为，本仓库无法通过配置
+**现状：拒绝**（`unsupported_content`）。这是**上游硬编码**的行为，本项目无法通过配置
 打开 —— 见 `deepseek-harness-codearts/src/openai-gateway/images.ts`：
 
 ```ts
@@ -514,7 +490,7 @@ if (typeof url === "string" && !url.trim().startsWith("data:")) {
 - 本项目是**自用网关**，风险比上游设想的小；但风险取决于**部署形态**（是否被反代到公网、
   同机是否跑着别的内部服务），而不是「自用」这个词本身。
 
-**将来若要支持（方案 B）**：在本仓库的 `/v1/*` 反代层拦一道
+**将来若要支持（方案 B）**：在本项目的 `/v1/*` 反代层拦一道
 （`src/server.js` 的 `proxyToGateway`）—— 检测 http(s) `image_url` → 下载 → 转 base64
 data URL → 重写请求体再转发，**不改上游**。必须带的防护：
 
@@ -528,8 +504,6 @@ data URL → 重写请求体再转发，**不改上游**。必须带的防护：
 
 环境变量建议：`ALLOW_IMAGE_URL=1`（默认关，打开后 `/healthz` 回显该状态），
 另可加 `ALLOW_IMAGE_URL_HOSTS=` 只放行受信任图床。
-
-</details>
 
 ### 已知边界
 
@@ -645,6 +619,28 @@ Dockerfile         容器构建
 CHANGELOG.md       变更记录（新的在最前面）
 ```
 
+### 自动升级（GitHub Actions）
+
+工作流：`.github/workflows/upgrade-upstream.yml`。
+
+| 项       | 值                                                                                                 |
+| -------- | -------------------------------------------------------------------------------------------------- |
+| 定时     | 每天 **北京时间 08:08**（cron 写的是 `8 0 * * *` —— GitHub 用 UTC 且按小时错开）                   |
+| 手动触发 | Actions 页 → 该工作流 → **Run workflow**                                                           |
+| 提交身份 | `upgrade-bot <upgrade-bot@users.noreply.github.com>`（不用 `github-actions[bot]`，那个看不出是谁） |
+| 产物     | `package.json` / `package-lock.json` 的上游 hash + `CHANGELOG.md` 的一条新记录                     |
+| 失败     | 步骤非零退出 ⇒ 工作流变红 ⇒ **GitHub 发失败通知邮件**；失败原因还会写进 Actions 的 Summary         |
+
+> ⚠️ **失败通知要自己开**：GitHub 默认只给「订阅了通知」的人发邮件。若没收到，
+> 在仓库的 **Settings → Notifications** 里把 Actions 的邮件打开，或在
+> **Settings → Actions → General → Notifications** 里添加自己的邮箱。
+>
+> 失败时不必担心仓库被改坏 —— 脚本的每一步要么不落地，要么落地了就是对的：
+> 依赖装不上会**回滚** `package.json` 与 `package-lock.json`；测试不过就**不提交**。
+
+**为什么定时任务不会误伤仓库**：上游没更新时脚本**直接退出**，工作区一个字节都不动，
+推送步骤也会检测到「没有改动」而跳过。
+
 ## 变更记录与升级
 
 历次变更记在 [`CHANGELOG.md`](CHANGELOG.md)（**新的在最前面**）—— 上游每个版本改了什么、本仓库验证结果。本节说明它的组织方式、与上游的耦合面，以及升级流程。
@@ -677,7 +673,7 @@ import * as plugin from "dsh-codearts-auth" // src/host.js 唯一的一行
 
 | 上游改了什么                      | 我们要改                         | 为什么                                                    |
 | --------------------------------- | -------------------------------- | --------------------------------------------------------- |
-| 新增一个渠道（provider）          | **0 行**（仅测试期望列表）       | 我们不含任何渠道名单，界面与 `provider.status` 都是动态的 |
+| 新增一个渠道（provider）          | **0 行**                         | 我们不含任何渠道名单，界面与 `provider.status` 都是动态的 |
 | 改某个渠道的协议/登录             | **0 行**                         | 逻辑全在上游                                              |
 | 改界面布局 / 样式                 | **0 行**（只需 `npm run build`） | 界面是上游产物的原样复用                                  |
 | 改网关行为（/v1/\*）              | **0 行**                         | 网关是上游的，我们只转发                                  |
@@ -689,6 +685,39 @@ import * as plugin from "dsh-codearts-auth" // src/host.js 唯一的一行
 | **改插件 `inject` 列表**          | `src/host.js` 的 provide         | 少了服务插件会永久 pending                                |
 
 ### 升级流程
+
+> ⚠️ **本仓库已把上游升级脚本化**：日常升级由
+> [`scripts/upgrade-upstream.mjs`](scripts/upgrade-upstream.mjs) 完成，
+> GitHub Actions 每天北京时间 **08:08** 自动跑一次（也可在 Actions 页手动触发）。
+> 下面这一节保留**手工流程**，用于「脚本跑挂了要人工兜底」或「想手动看每一步」。
+>
+> ```bash
+> npm run upgrade:upstream        # 查上游 → 有更新才继续 → 安装 → 构建 → 测试 → 写 CHANGELOG → 提交
+> npm run upgrade:upstream -- --dry-run   # 只查不装，看上游有没有新 commit
+> ```
+
+脚本的行为：上游 hash **没变就直接跳过**（不装、不构建、不改文件、不提交）；变了就
+跑完整条链路，**自动**把上游这一段的 commit 标题写进 `CHANGELOG.md`（只取标题，
+不取正文），并自动 `git commit`。任何一步失败都会**非零退出**并留下详细日志 ——
+GitHub Actions 因此会发失败通知邮件。
+
+自动升级跑完后，**测试不需要改**：provider 名单的断言是「期望 ⊆ 实际」
+（**只防删、不防增**），渠道总数与渠道文案都**不写死**。上游新增渠道时，
+本仓库的测试与文档**零改动**（这正是当初把它们改成单向断言的原因）。
+
+| 脚本步骤                  | 失败时说明                                       | 怎么办                                                      |
+| ------------------------- | ------------------------------------------------ | ----------------------------------------------------------- |
+| `npm install`             | 上游拉取或编译出错                               | 看日志；多半是上游刚发版触发了 pnpm 的「新包冷却期」        |
+| `package-lock.json` 核对  | lock 静默沿用了旧 commit                         | 脚本会自动回滚，照错误信息里的命令手工处理                  |
+| `npm run build`           | 上游产物形态变了（`./client` 导出路径不同）      | 对照 [README 上游契约表](#升级时需要改多少代码)             |
+| `npm test`                | 上游改了契约（端点路径 / 删了渠道 / 新外部依赖） | 按报错改 `src/upstream.js` 的常量或 `web/admin.jsx` 的 shim |
+| `npm run lint` / `format` | 本仓库代码风格问题                               | `npm run format` 修                                         |
+| `git commit`              | 权限或并发冲突                                   | 看 Actions 日志                                             |
+
+**回滚**：自动升级的 commit 是**一个** commit 里包含依赖变更 + CHANGELOG 条目，
+`git revert <那个 commit>` 即可整体回退；也可以照下面的手工流程装回旧 commit。
+
+### 手工流程（脚本跑挂了要人工兜底时用）
 
 **1. 查上游最新 commit**
 
@@ -754,7 +783,7 @@ npm run format:check  # 确认代码风格一致
 
 | 失败的是                                               | 说明                     | 怎么办                                                    |
 | ------------------------------------------------------ | ------------------------ | --------------------------------------------------------- |
-| `host.test.mjs` 的「provider 列表与期望不一致」        | 上游**增删了渠道**       | 按报错给出的实际列表更新 `EXPECTED_PROVIDERS`（只改测试） |
+| `host.test.mjs` 的「provider 不见了」                  | 上游**删除/改名**了渠道  | 按报错给出的实际列表更新 `EXPECTED_PROVIDERS`（只改测试） |
 | `admin-ui.test.mjs` 的「只请求我们 shim 能提供的模块」 | 上游引入**新的外部依赖** | 在 `web/admin.jsx` 的 `captured.factory()` 里补上该模块   |
 | `home-isolation.test.mjs`                              | 存储格式/隔离被改坏      | 看具体断言，通常与 `src/home.js` 或凭据服务有关           |
 | `format:check` 报**已有文件**（不是本次改的）          | 工作区行尾漂移           | 见下方「行尾」；**不要**用 `format` 去「修」代码          |
@@ -785,8 +814,8 @@ npm start
 **没有这行、或直接抛错**，就说明上游改了端点路径或装配方式 —— 错误信息会告诉你去
 `src/upstream.js` 改哪个常量。
 
-**6. 真机点一下（建议）** —— 打开 `/admin`，确认：左侧导航完整（21 个渠道 + 聚合面板）、
-账号列表能读出 source、页头「网关」开关能开关。
+**6. 真机点一下（建议）** —— 打开 `/admin`，确认：左侧导航里各个渠道都在、账号列表能读出
+source、页头「网关」开关能开关。
 
 **回滚**
 

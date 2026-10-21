@@ -3,7 +3,12 @@
 # 基础镜像要满足两个条件：
 # 1. Node ≥ 22.19（上游 `engines` 的下限，也是 `AbortSignal.any` 等 API 的前提）；
 # 2. 带 pnpm —— git 依赖的 `prepare` 脚本会执行 `pnpm build:all`。
-FROM node:22-slim
+#
+# ⚠️ **为什么是 24 而不是 22**（2026-10-21 换）：Node 22 已于 2026-10-20 转入
+#    Maintenance LTS，**2027-04-30 EOL**（只剩半年多）；Node 24 的 EOL 是 2028-04-30。
+#    上游与本仓库的 `engines` 都是 `^22.19.0 || >=24.0.0`，24 完全满足。
+#    26 要到 2026-10-28 才转 Active LTS（EOL 2029-04-30），届时可再升。
+FROM node:24-slim
 
 # git：npm 要从 gitee 克隆依赖；ca-certificates：TLS 根证书。
 RUN apt-get update \
@@ -12,6 +17,10 @@ RUN apt-get update \
 
 # ── pnpm：显式钉版本 ──
 # 上游的 `prepare` 是 `pnpm build:all`，所以装依赖时**必须**有 pnpm 可用。
+#
+# ⚠️ 上游 2026-10-21 的 b0940ca 之后 `prepare` 已改成内联真实命令、不再依赖任何
+#    包管理器。但**本仓库锁定的 commit 可能还没到那一步**（升级是逐个 commit 走的），
+#    所以这里**继续保留 pnpm** —— 留着无害，去掉则会在旧 commit 上装不上。
 #
 # ⚠️ 不用裸 `corepack enable`：那会让 corepack 用**它自己内置的默认版本**，
 #    该默认值随 Node 镜像版本漂移（本仓库开发机上实测拿到 11.25.0，但别的

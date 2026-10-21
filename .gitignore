@@ -41,6 +41,9 @@ npm-debug.log*
 *.tmp.js
 *.bak
 
+# 上游升级脚本用来取 commit 标题的临时克隆（用完即删，残留也不该入库）
+.upgrade-upstream-tmp/
+
 # ── 编辑器 / 系统 ──
 .idea/
 .vscode/
