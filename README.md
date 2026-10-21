@@ -289,6 +289,30 @@ docker exec codearts2api cat /data/admin-key
 > 想固定一把（比如写进密码管理器）就加 `-e CODEARTS2API_ADMIN_KEY=你的密钥`，
 > 此后不再生成文件。⚠️ 别把它写进公开的 compose / 脚本里。
 
+#### GHCR 预构建镜像
+
+仓库启用 GitHub Actions 后，`Publish image` 工作流会发布 `linux/amd64` 与
+`linux/arm64` 镜像到 `ghcr.io/<owner>/<repository>`（仓库路径自动转为小写，fork 无需改配置）。
+将下面的 `owner/repository` 替换为实际仓库路径即可运行：
+
+```bash
+docker run -d --name codearts2api \
+  -p 8080:8080 \
+  -v codearts2api-data:/data \
+  ghcr.io/owner/repository:latest
+```
+
+| 触发方式                    | 镜像标签与行为                                               |
+| --------------------------- | ------------------------------------------------------------ |
+| 推送到默认分支              | 发布 `latest` 与 `sha-<完整提交 SHA>`                        |
+| 推送版本标签（如 `v1.2.3`） | 发布 `1.2.3`、`1.2` 与 SHA 标签；`latest` 始终跟随默认分支   |
+| Pull request                | 构建两种架构以验证 Dockerfile，不登录 GHCR、不发布镜像       |
+| Actions 页手动运行          | 发布所选分支或标签的 SHA 镜像；选默认分支时同时更新 `latest` |
+| 自动升级依赖并成功推送      | 直接复用发布流程，构建升级后的提交；无更新或升级失败则跳过   |
+
+发布使用内置 `GITHUB_TOKEN`，无需额外 Secret。首次发布后，如需匿名拉取，
+在仓库的 **Packages → 镜像包 → Package settings** 中将可见性设为 **Public**。
+
 #### `PROXY_GATEWAY` 默认开启
 
 插件网关的监听地址在上游是**硬编码**的 `127.0.0.1`（`DEFAULT_GATEWAY_HOST` 不可经环境
